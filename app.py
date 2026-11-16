@@ -1,3 +1,5 @@
+import random
+
 import joblib
 import pandas as pd
 import streamlit as st
@@ -6,6 +8,19 @@ st.set_page_config(page_title="Disease Risk Prediction", page_icon="🩺", layou
 
 ACCENT = "#0F766E"
 COLORS = {"Low": "#2E9F6B", "Moderate": "#D9A21B", "High": "#D64545"}
+
+QUOTES = [
+    ("Prevention is better than cure.", "Proverb"),
+    ("Health is wealth.", "Proverb"),
+    ("An apple a day keeps the doctor away.", "Proverb"),
+    ("The greatest wealth is health.", "Virgil"),
+    ("Early to bed and early to rise makes a man healthy, wealthy, and wise.", "Benjamin Franklin"),
+]
+RESULT_QUOTES = {
+    "Low": ("Health is wealth.", "Proverb"),
+    "Moderate": ("Prevention is better than cure.", "Proverb"),
+    "High": ("Prevention is better than cure.", "Proverb"),
+}
 
 CSS = """
 <style>
@@ -59,6 +74,8 @@ h1, h2, h3, p, label, button, input, textarea, li, .stTabs button {
 
 .verdict {margin-top: 1.4rem; padding: 1rem 1.2rem; border-radius: 14px; border-left: 6px solid var(--c);
   background: rgba(128,128,128,.09); line-height: 1.55; font-weight: 600;}
+.quote {margin: 1.3rem 0 .4rem; padding: .15rem 0 .15rem 1rem; border-left: 3px solid %(accent)s; font-style: italic; line-height: 1.5; font-size: 1.02rem;}
+.quote small {display: block; font-style: normal; opacity: .65; margin-top: .25rem; font-size: .85rem;}
 .note {margin-top: 1.2rem; font-size: .85rem; opacity: .65; line-height: 1.5;}
 </style>
 """ % {"accent": ACCENT}
@@ -86,6 +103,10 @@ def ring(title, p):
             f'<div class="ringlabel">{title}</div></div>')
 
 
+def quote_html(text, author):
+    return f'<div class="quote">&ldquo;{text}&rdquo;<small>{author}</small></div>'
+
+
 def bar(label, p):
     pct = round(p * 100)
     return (f'<div class="barrow"><span class="barl">{label}</span>'
@@ -100,6 +121,11 @@ st.markdown(
     'L114 24 H190 L202 24 L212 6 L224 42 L234 24 H310 L322 24 L332 10 L344 38 L354 24 H420"/></svg></div>',
     unsafe_allow_html=True,
 )
+
+if "quote" not in st.session_state:
+    st.session_state["quote"] = random.choice(QUOTES)
+st.markdown(quote_html(*st.session_state["quote"]), unsafe_allow_html=True)
+st.write("")
 
 tab_you, tab_d, tab_h = st.tabs(["About you", "Diabetes details", "Heart details"])
 
@@ -174,6 +200,8 @@ if st.button("Check my risk", type="primary"):
     else:
         msg, tone = "Risk looks low for both. Keep up regular check-ups and a healthy lifestyle.", "Low"
     st.markdown(f'<div class="verdict" style="--c:{COLORS[tone]}">{msg}</div>', unsafe_allow_html=True)
+
+    st.markdown(quote_html(*RESULT_QUOTES[tone]), unsafe_allow_html=True)
 
     st.markdown(
         '<div class="note">This is an educational risk estimate, not a medical diagnosis. The diabetes and heart '
