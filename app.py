@@ -93,8 +93,8 @@ st.markdown(CSS, unsafe_allow_html=True)
 
 @st.cache_resource
 def load_models():
-    return {(d, m): joblib.load(f"models/{d}_{m}.joblib")
-            for d in ("diabetes", "heart") for m in ("lr", "rf")}
+    # One algorithm (Random Forest) for both diseases.
+    return {d: joblib.load(f"models/{d}_rf.joblib") for d in ("diabetes", "heart")}
 
 
 models = load_models()
@@ -143,8 +143,6 @@ with tab_you:
     sex = c2.selectbox("Sex", ["Male", "Female"])
     glucose = st.number_input("Fasting glucose (mg/dL)", 40, 400, 110,
                               help="Above 120 mg/dL counts as high fasting sugar for the heart model.")
-    algo_name = st.radio("Prediction model", ["Random Forest", "Logistic Regression"], horizontal=True)
-    algo = "rf" if algo_name == "Random Forest" else "lr"
 
 with tab_d:
     a, b = st.columns(2)
@@ -175,7 +173,7 @@ if st.button("Check my risk", type="primary"):
     d_row = pd.DataFrame([[preg, glucose, dbp, skin, insulin, bmi, dpf, age]],
                          columns=["Pregnancies", "Glucose", "BloodPressure", "SkinThickness",
                                   "Insulin", "BMI", "DiabetesPedigreeFunction", "Age"])
-    p_d = models[("diabetes", algo)].predict_proba(d_row)[0, 1]
+    p_d = models["diabetes"].predict_proba(d_row)[0, 1]
 
     fbs = int(glucose > 120)
     h_cols = ["age", "sex", "chest_pain_type", "resting_bp", "cholesterol",
@@ -185,7 +183,7 @@ if st.button("Check my risk", type="primary"):
     def heart_prob(fbs_value):
         row = pd.DataFrame([[age, int(sex == "Male"), cp, sbp, chol, fbs_value, ecg, hr,
                              int(exang == "Yes"), oldpeak, slope, ca, thal]], columns=h_cols)
-        return models[("heart", algo)].predict_proba(row)[0, 1]
+        return models["heart"].predict_proba(row)[0, 1]
 
     p_h = heart_prob(fbs)
     p_lo, p_hi = heart_prob(0), heart_prob(1)
@@ -202,7 +200,6 @@ if st.button("Check my risk", type="primary"):
         unsafe_allow_html=True,
     )
 
-    top = max(p_d, p_h)
     if p_d >= 0.5 and p_h >= 0.5:
         msg, tone = "Risk is elevated for both conditions. Please book a check-up with a doctor soon.", "High"
     elif p_d >= 0.5 or p_h >= 0.5:
