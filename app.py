@@ -16,6 +16,14 @@ QUOTES = [
     ("The greatest wealth is health.", "Virgil"),
     ("Early to bed and early to rise makes a man healthy, wealthy, and wise.", "Benjamin Franklin"),
 ]
+# Chest pain shown as a level; each level maps to the dataset's code (1-4) used by the trained models.
+CHEST_PAIN = {"None": 4, "Low": 3, "Moderate": 2, "Severe": 1}
+CHEST_PAIN_TYPE = {
+    "None": "asymptomatic (no chest pain)",
+    "Low": "non-anginal pain",
+    "Moderate": "atypical angina",
+    "Severe": "typical angina",
+}
 RESULT_QUOTES = {
     "Low": ("Health is wealth.", "Proverb"),
     "Moderate": ("Prevention is better than cure.", "Proverb"),
@@ -149,7 +157,9 @@ with tab_d:
 
 with tab_h:
     a, b = st.columns(2)
-    cp = a.selectbox("Chest pain type (1-4)", [1, 2, 3, 4], index=3)
+    cp_label = a.selectbox("Chest pain level", list(CHEST_PAIN), index=0)
+    cp = CHEST_PAIN[cp_label]
+    a.caption(f"Medical type: {CHEST_PAIN_TYPE[cp_label]}")
     sbp = b.number_input("Resting systolic BP (mmHg)", 80, 220, 130)
     chol = a.number_input("Cholesterol (mg/dL)", 100, 600, 220)
     ecg = b.selectbox("Resting ECG (0-2)", [0, 1, 2])
