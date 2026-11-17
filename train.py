@@ -1,5 +1,5 @@
-"""Train a Random Forest for Diabetes and Heart Disease, save models, metrics
-and the diabetes -> heart link analysis.
+"""Train a Random Forest for Diabetes and for Heart Disease, save the models,
+metrics and the diabetes -> heart link analysis.
 
 Put diabetes.csv and heart.csv (your two datasets, with header row) next to this file.
 Run:  python train.py
@@ -15,7 +15,7 @@ from scipy.stats import chi2_contingency
 from sklearn.ensemble import RandomForestClassifier
 from sklearn.metrics import (accuracy_score, precision_score, recall_score,
                              f1_score, roc_auc_score, ConfusionMatrixDisplay)
-from sklearn.model_selection import train_test_split
+from sklearn.model_selection import StratifiedKFold, cross_val_score, train_test_split
 
 os.makedirs("models", exist_ok=True)
 os.makedirs("results", exist_ok=True)
@@ -43,27 +43,24 @@ heart["target"] = (heart["target"] > 0).astype(int)  # 1 = disease present
 def train(name, df, target):
     X, y = df.drop(columns=[target]), df[target]
     Xtr, Xte, ytr, yte = train_test_split(X, y, test_size=0.2, stratify=y, random_state=42)
-
-    model = RandomForestClassifier(n_estimators=200, random_state=42)
-    model.fit(Xtr, ytr)
-    pred, prob = model.predict(Xte), model.predict_proba(Xte)[:, 1]
-
-    row = {"disease": name,
-           "accuracy": accuracy_score(yte, pred),
-           "precision": precision_score(yte, pred),
-           "recall": recall_score(yte, pred),
-           "f1": f1_score(yte, pred),
-           "roc_auc": roc_auc_score(yte, prob)}
-
-    joblib.dump(model, f"models/{name}_rf.joblib")
+    rf = RandomForestClassifier(n_estimators=200, random_state=42)
+    rf.fit(Xtr, ytr)
+    pred, prob = rf.predict(Xte), rf.predict_proba(Xte)[:, 1]
+    cv = cross_val_score(RandomForestClassifier(n_estimators=200, random_state=42), X, y,
+                         cv=StratifiedKFold(5, shuffle=True, random_state=42), scoring="accuracy")
+    row = {"disease": name, "model": "Random Forest",
+           "accuracy": accuracy_score(yte, pred), "precision": precision_score(yte, pred),
+           "recall": recall_score(yte, pred), "f1": f1_score(yte, pred),
+           "roc_auc": roc_auc_score(yte, prob), "cv_accuracy_5fold": cv.mean()}
+    joblib.dump(rf, f"models/{name}_rf.joblib")
     ConfusionMatrixDisplay.from_predictions(yte, pred)
     plt.title(f"{name} - Random Forest")
-    plt.savefig(f"results/cm_{name}.png", dpi=150, bbox_inches="tight")
+    plt.savefig(f"results/cm_{name}_rf.png", dpi=150, bbox_inches="tight")
     plt.close()
-    return row, model, X.columns
+    return row, rf, X.columns
 
 
-row_d, _, _ = train("diabetes", diab, "Outcome")
+row_d, rf_diab, _ = train("diabetes", diab, "Outcome")
 row_h, rf_heart, heart_cols = train("heart", heart, "target")
 metrics = pd.DataFrame([row_d, row_h]).round(3)
 metrics.to_csv("results/metrics.csv", index=False)
@@ -90,4 +87,4 @@ imp.plot.barh(ax=ax[1])
 ax[1].set_title("Random Forest feature importance (heart)")
 plt.tight_layout()
 plt.savefig("results/diabetes_heart_link.png", dpi=150)
-print("\nSaved: models/*.joblib, results/metrics.csv, results/*.png")
+print("\nSaved: models/*_rf.joblib, results/metrics.csv, results/*.png")
