@@ -7,6 +7,7 @@ import streamlit as st
 st.set_page_config(page_title="Disease Risk Prediction", page_icon="🩺", layout="centered")
 
 COLORS = {"Low": "#16A34A", "Moderate": "#D97706", "High": "#DC2626"}
+ORDER = {"Low": 0, "Moderate": 1, "High": 2}
 
 QUOTES = [
     ("Prevention is better than cure.", "Proverb"),
@@ -21,60 +22,29 @@ RESULT_QUOTES = {
     "High": ("Prevention is better than cure.", "Proverb"),
 }
 MEANING = {
-    "Low": "Lower likelihood based on the values entered.",
-    "Moderate": "Some risk indicators present. Monitor and consider a check-up.",
-    "High": "Several risk indicators present. A medical check-up is advised.",
+    "Low": "Few risk signs were found in the details you entered.",
+    "Moderate": "Some risk signs were found. Keep an eye on this.",
+    "High": "Several risk signs were found. A check-up is advised.",
 }
-
-# ---------- health tips shown for each risk level ----------
 TIPS = {
     "diabetes": {
-        "Low": [
-            ("🥗", "Keep a balanced diet with whole grains, vegetables, pulses and fruit."),
-            ("🚶", "Stay active: aim for about 150 minutes of moderate exercise a week."),
-            ("⚖️", "Maintain a healthy weight and BMI."),
-            ("🩺", "Check your fasting blood sugar once a year."),
-        ],
-        "Moderate": [
-            ("🥤", "Cut down on sugary drinks, sweets and refined carbohydrates (white rice, maida)."),
-            ("🚶", "Walk briskly for 30 minutes on most days of the week."),
-            ("⚖️", "If you are overweight, losing even 5-7% of body weight lowers risk."),
-            ("🩺", "Get fasting glucose or HbA1c tested every 6 months."),
-            ("😴", "Sleep 7-8 hours and manage stress; both affect blood sugar."),
-        ],
-        "High": [
-            ("🩺", "Book a doctor visit soon for fasting glucose and HbA1c tests."),
-            ("🥗", "Ask a doctor or dietitian for a meal plan; avoid sugary food and drinks."),
-            ("📈", "Monitor your blood sugar if your doctor advises it."),
-            ("⚠️", "Do not ignore symptoms: excess thirst, frequent urination, blurred vision, slow-healing wounds."),
-            ("🚶", "Stay active with light exercise such as walking, once your doctor agrees."),
-        ],
+        "Low": "Keep a balanced diet and stay active.",
+        "Moderate": "Cut down sugary drinks, walk daily and recheck your blood sugar in a few months.",
+        "High": "Please get a fasting blood sugar or HbA1c test and talk to a doctor.",
     },
     "heart": {
-        "Low": [
-            ("🥦", "Eat a heart-friendly diet: more fruit and vegetables, less salt and fried food."),
-            ("🏃", "Stay physically active most days of the week."),
-            ("🚭", "Avoid tobacco and limit alcohol."),
-            ("🩺", "Check blood pressure and cholesterol once a year."),
-        ],
-        "Moderate": [
-            ("🧂", "Reduce salt, saturated fat and processed food."),
-            ("🏃", "Do 30 minutes of brisk activity on most days."),
-            ("🚭", "Quit smoking and limit alcohol if you use either."),
-            ("🩺", "Check blood pressure and cholesterol every 6 months."),
-            ("🧘", "Manage stress with rest, breathing exercises or hobbies."),
-        ],
-        "High": [
-            ("🩺", "See a doctor soon for an ECG, blood pressure and cholesterol check."),
-            ("🚨", "Seek urgent care for chest pain, breathlessness, fainting or pain spreading to the arm or jaw."),
-            ("🛑", "Avoid heavy exertion until a doctor has checked your heart."),
-            ("💊", "Take any prescribed medicines regularly and do not stop them on your own."),
-            ("🧂", "Cut salt, fried food and tobacco right away."),
-        ],
+        "Low": "Keep exercising and avoid smoking.",
+        "Moderate": "Watch your blood pressure and cholesterol, and add regular exercise.",
+        "High": "Please see a doctor and consider an ECG and cholesterol test.",
     },
 }
+HEADLINE = {
+    "Low": ("🟢", "Good news: low risk on both checks", "Keep up your healthy habits and regular check-ups."),
+    "Moderate": ("🟠", "Some risk signs were found", "A check-up is a good idea. See the tips below."),
+    "High": ("🔴", "Higher risk found: please see a doctor soon", "This tool cannot diagnose. A doctor can run the right tests."),
+}
 
-# Chest pain shown as a level; each level maps to the dataset's code (1-4) used by the trained models.
+# Words shown to the user -> codes used by the trained models.
 CHEST_PAIN = {"None": 4, "Low": 3, "Moderate": 2, "Severe": 1}
 CHEST_PAIN_TYPE = {
     "None": "asymptomatic (no chest pain)",
@@ -82,11 +52,16 @@ CHEST_PAIN_TYPE = {
     "Moderate": "atypical angina",
     "Severe": "typical angina",
 }
+ECG = {"Normal": 0, "ST-T wave abnormality": 1, "Left ventricular hypertrophy": 2}
+SLOPE = {"Upsloping": 1, "Flat": 2, "Downsloping": 3}
+THAL = {"Normal": 3, "Fixed defect": 6, "Reversible defect": 7}
+
 FRIENDLY = {
+    "BMI": "BMI", "Glucose": "Blood sugar",
     "BloodPressure": "Blood pressure", "SkinThickness": "Skin thickness",
-    "DiabetesPedigreeFunction": "Family history score", "chest_pain_type": "Chest pain type",
+    "DiabetesPedigreeFunction": "Family history score", "chest_pain_type": "Chest pain",
     "resting_bp": "Resting BP", "fasting_blood_sugar": "Fasting blood sugar", "resting_ecg": "Resting ECG",
-    "max_heart_rate": "Max heart rate", "exercise_angina": "Exercise angina", "oldpeak": "ST depression",
+    "max_heart_rate": "Max heart rate", "exercise_angina": "Exercise chest pain", "oldpeak": "ST depression",
     "slope": "ST slope", "num_major_vessels": "Major vessels", "thalassemia": "Thalassemia",
 }
 
@@ -117,7 +92,7 @@ h1, h2, h3, p, label, button, input, textarea, li, .stTabs button {font-family: 
   background: rgba(255,255,255,.12); border: 1px solid rgba(255,255,255,.28); margin-bottom: .9rem;}
 .tag i {width: 8px; height: 8px; border-radius: 50%; background: #5EEAD4; display: inline-block;}
 .hero h1 {color: #fff !important; font-size: 2.35rem; font-weight: 800; letter-spacing: -0.02em; margin: 0 0 .45rem; padding: 0; line-height: 1.1;}
-.hero p {color: #fff !important; margin: 0; opacity: .86; max-width: 34rem; line-height: 1.6;}
+.hero p {color: #fff !important; margin: 0; opacity: .88; max-width: 34rem; line-height: 1.6; font-size: 1.04rem;}
 .ecg {width: 100%; max-width: 440px; height: 44px; margin-top: 1.2rem; display: block;}
 .ecg path {fill: none; stroke: #5EEAD4; stroke-width: 2.6; stroke-linecap: round; stroke-linejoin: round;
   stroke-dasharray: 900; stroke-dashoffset: 900; animation: draw 2.4s ease-out forwards;}
@@ -130,45 +105,48 @@ h1, h2, h3, p, label, button, input, textarea, li, .stTabs button {font-family: 
 .c2 {background: linear-gradient(90deg, #2563EB, #06B6D4);}
 .c3 {background: linear-gradient(90deg, #E11D48, #F97316);}
 
+/* ---------- steps ---------- */
+.steps {display: grid; grid-template-columns: repeat(auto-fit, minmax(190px, 1fr)); gap: .8rem; margin: 1.2rem 0 .4rem;}
+.step {display: flex; align-items: center; gap: .75rem; padding: .8rem 1rem; border-radius: 16px;
+  border: 1px solid rgba(128,128,128,.25); background: rgba(128,128,128,.07);}
+.step b {display: inline-grid; place-items: center; flex: none; width: 2rem; height: 2rem; border-radius: 50%; color: #fff; font-size: .95rem;
+  background: linear-gradient(135deg, #1D4ED8, #0D9488);}
+.step span {font-weight: 700; font-size: .92rem; line-height: 1.3;}
+
 /* ---------- quotes ---------- */
-.quote {margin: 1.1rem 0 .5rem; padding: .95rem 1.2rem 1rem 1.4rem; border-radius: 14px; border-left: 5px solid #2563EB;
+.quote {margin: 1rem 0 .5rem; padding: .9rem 1.2rem .95rem 1.4rem; border-radius: 14px; border-left: 5px solid #2563EB;
   background: linear-gradient(120deg, rgba(37,99,235,.12), rgba(13,148,136,.12));
-  font-style: italic; line-height: 1.5; font-size: 1.03rem;}
+  font-style: italic; line-height: 1.5; font-size: 1.02rem;}
 .quote small {display: block; font-style: normal; opacity: .7; margin-top: .3rem; font-size: .85rem; font-weight: 600;}
 
 /* ---------- tabs and inputs ---------- */
+.help {margin: .2rem 0 .8rem; font-size: .9rem; opacity: .78; line-height: 1.5;}
 .stTabs [data-baseweb="tab-list"] {gap: .3rem;}
 .stTabs [data-baseweb="tab"] {font-weight: 700; padding: .6rem 1rem;}
 .stTabs [aria-selected="true"] {color: #2563EB;}
 .stTabs [data-baseweb="tab-highlight"] {background-image: linear-gradient(90deg, #1D4ED8, #0D9488); background-color: transparent; height: 4px; border-radius: 4px;}
 .stTabs [data-baseweb="tab-panel"] {margin-top: .7rem; padding: 1rem 1rem .4rem; border-radius: 16px;
   border: 1px solid rgba(37,99,235,.25); background: rgba(37,99,235,.05);}
+.bmi {display: inline-block; margin: .1rem 0 .8rem; padding: .35rem .8rem; border-radius: 99px; font-weight: 700; font-size: .88rem;
+  background: rgba(37,99,235,.14); border: 1px solid rgba(37,99,235,.35);}
 
-.stButton > button {width: 100%; border-radius: 12px; font-weight: 800; padding: .85rem 1rem; font-size: 1.06rem; border: none; transition: transform .15s ease, box-shadow .15s ease;}
+.stButton > button, .stDownloadButton > button {width: 100%; border-radius: 12px; font-weight: 800; padding: .85rem 1rem; font-size: 1.06rem; border: none; transition: transform .15s ease, box-shadow .15s ease;}
 .stButton > button[kind="primary"], .stButton button[data-testid="stBaseButton-primary"] {
   background-image: linear-gradient(100deg, #1D4ED8, #0D9488); background-color: #1D4ED8; color: #fff;
   box-shadow: 0 14px 28px -14px rgba(29,78,216,.9);}
 .stButton > button[kind="primary"]:hover, .stButton button[data-testid="stBaseButton-primary"]:hover {
   transform: translateY(-2px); color: #fff; box-shadow: 0 18px 32px -14px rgba(13,148,136,.9);}
 
-/* ---------- BMI calculator ---------- */
-.sub-title {font-size: 1.02rem; font-weight: 800; margin: 1rem 0 .5rem; display: flex; align-items: center; gap: .5rem;}
-.bmi {margin: .4rem 0 1rem; padding: 1.1rem 1.2rem 1rem; border-radius: 16px; border: 1px solid rgba(37,99,235,.28);
-  background: linear-gradient(135deg, rgba(37,99,235,.09), rgba(13,148,136,.09));}
-.bmitop {display: flex; align-items: center; gap: 1rem; margin-bottom: 1rem;}
-.bmil {font-size: .8rem; opacity: .7; font-weight: 700;}
-.bmiv {font-size: 2.1rem; font-weight: 800; line-height: 1.05;}
-.bmibar {position: relative; height: 12px; border-radius: 99px;
-  background: linear-gradient(90deg, #38BDF8 0 14%, #16A34A 14% 40%, #D97706 40% 60%, #DC2626 60% 100%);}
-.bmibar span {position: absolute; top: 50%; width: 20px; height: 20px; border-radius: 50%; background: #fff;
-  border: 4px solid #0B1F44; transform: translate(-50%, -50%); box-shadow: 0 2px 8px rgba(0,0,0,.35);}
-.bmiscale {display: flex; justify-content: space-between; gap: .4rem; flex-wrap: wrap; margin-top: .6rem;}
-.bmiscale small {font-size: .74rem; opacity: .7; font-weight: 600;}
-
 /* ---------- results ---------- */
 .section-title {font-size: 1.25rem; font-weight: 800; margin: 2.2rem 0 1rem; letter-spacing: -0.01em; display: flex; align-items: center; gap: .6rem;}
 .section-title::before {content: ""; width: 5px; height: 1.3rem; border-radius: 4px; background: linear-gradient(180deg, #1D4ED8, #0D9488);}
-.rgrid {display: grid; grid-template-columns: repeat(auto-fit, minmax(270px, 1fr)); gap: 1rem;}
+.overall {display: flex; align-items: center; gap: 1rem; padding: 1.2rem 1.3rem; border-radius: 20px; border-left: 8px solid var(--c);
+  background: rgba(128,128,128,.12); background: color-mix(in srgb, var(--c) 15%, transparent);}
+.overall .big {font-size: 2.2rem; line-height: 1;}
+.overall h3 {margin: 0; padding: 0; font-size: 1.28rem; font-weight: 800; line-height: 1.25;}
+.overall p {margin: .3rem 0 0; opacity: .85; line-height: 1.5;}
+.overall small {display: block; margin-top: .45rem; font-weight: 700; opacity: .75;}
+.rgrid {display: grid; grid-template-columns: repeat(auto-fit, minmax(270px, 1fr)); gap: 1rem; margin-top: 1rem;}
 .rcard {position: relative; overflow: hidden; padding: 1.4rem 1.2rem 1.2rem; border-radius: 20px; border: 1px solid rgba(128,128,128,.25);
   background: linear-gradient(160deg, color-mix(in srgb, var(--g1) 11%, transparent), color-mix(in srgb, var(--g2) 6%, transparent));
   box-shadow: 0 16px 34px -24px var(--g1);}
@@ -191,19 +169,10 @@ h1, h2, h3, p, label, button, input, textarea, li, .stTabs button {font-family: 
 .ringtxt {position: absolute; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center;}
 .ringtxt b {font-size: 2.05rem; font-weight: 800; line-height: 1;}
 .ringtxt span {font-size: .82rem; font-weight: 700; margin-top: .25rem; opacity: .7;}
-.rtext {text-align: center; font-size: .88rem; line-height: 1.45; opacity: .8;}
-
-/* ---------- health tips ---------- */
-.tgrid {display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 1rem;}
-.tcard {position: relative; overflow: hidden; padding: 1.3rem 1.2rem 1.1rem; border-radius: 20px; border: 1px solid rgba(128,128,128,.25);
-  background: rgba(128,128,128,.06);}
-.tcard::before {content: ""; position: absolute; left: 0; right: 0; top: 0; height: 6px; background: var(--c);}
-.thead {display: flex; align-items: center; gap: .6rem; margin-bottom: .9rem;}
-.thead b {font-size: 1.02rem; font-weight: 800;}
-.titem {display: flex; gap: .7rem; align-items: flex-start; padding: .55rem .7rem; margin: .4rem 0; border-radius: 12px;
-  background: rgba(128,128,128,.09); line-height: 1.45; font-size: .92rem;}
-.titem .te {font-size: 1.15rem; line-height: 1.3;}
-.titem.extra {border-left: 4px solid var(--c);}
+.rtext {text-align: center; font-size: .92rem; line-height: 1.45; opacity: .85; font-weight: 600;}
+.tip {margin-top: .9rem; padding: .7rem .9rem; border-radius: 12px; font-size: .88rem; line-height: 1.45;
+  background: rgba(128,128,128,.12);}
+.tip b {display: block; font-size: .78rem; opacity: .7; margin-bottom: .15rem;}
 
 .panel {border: 1px solid rgba(37,99,235,.28); border-radius: 20px; padding: 1.25rem 1.35rem;
   background: linear-gradient(135deg, rgba(37,99,235,.09), rgba(13,148,136,.09));}
@@ -213,7 +182,7 @@ h1, h2, h3, p, label, button, input, textarea, li, .stTabs button {font-family: 
 .barv {font-weight: 800; text-align: right; font-size: .92rem;}
 .track {height: 12px; border-radius: 99px; background: rgba(128,128,128,.25); overflow: hidden;}
 .fill {height: 100%; border-radius: 99px;}
-.fgrid {display: grid; grid-template-columns: repeat(auto-fit, minmax(270px, 1fr)); gap: 1rem;}
+.fgrid {display: grid; grid-template-columns: repeat(auto-fit, minmax(250px, 1fr)); gap: 1rem;}
 .fcard {border: 1px solid rgba(128,128,128,.25); border-radius: 18px; padding: 1.1rem 1.2rem; background: rgba(128,128,128,.06);}
 .fcard h4 {margin: 0 0 .6rem; font-size: .98rem; font-weight: 800;}
 .fcard .fill {background: linear-gradient(90deg, var(--g1), var(--g2));}
@@ -221,7 +190,7 @@ h1, h2, h3, p, label, button, input, textarea, li, .stTabs button {font-family: 
 .fcard.h {--g1: #E11D48; --g2: #F97316;}
 @media (max-width: 520px) {.barrow {grid-template-columns: 1fr 3rem;} .barl {grid-column: 1 / -1;}}
 
-.note {margin-top: 1.3rem; font-size: .84rem; opacity: .65; line-height: 1.5;}
+.note {margin-top: 1.3rem; font-size: .84rem; opacity: .68; line-height: 1.5;}
 .foot {margin-top: 2.2rem; padding-top: 1rem; border-top: 1px solid rgba(128,128,128,.25); text-align: center; font-size: .8rem; opacity: .6;}
 </style>
 """
@@ -241,43 +210,14 @@ def level(p):
     return "Low" if p < 0.33 else "Moderate" if p < 0.66 else "High"
 
 
-def bmi_category(bmi):
-    if bmi < 18.5:
-        return "Underweight", "#0EA5E9"
-    if bmi < 25:
-        return "Normal", "#16A34A"
-    if bmi < 30:
-        return "Overweight", "#D97706"
-    return "Obese", "#DC2626"
-
-
-def bmi_card(bmi):
-    cat, col = bmi_category(bmi)
-    pos = min(max((bmi - 15) / (40 - 15), 0), 1) * 100
-    return (f'<div class="bmi"><div class="bmitop"><div><div class="bmil">Your BMI</div>'
-            f'<div class="bmiv">{bmi:.1f}</div></div><span class="pill" style="--c:{col}">{cat}</span></div>'
-            f'<div class="bmibar"><span style="left:{pos:.1f}%"></span></div>'
-            f'<div class="bmiscale"><small>Underweight &lt; 18.5</small><small>Normal 18.5-24.9</small>'
-            f'<small>Overweight 25-29.9</small><small>Obese 30+</small></div></div>')
-
-
-def result_card(title, p, kind, icon):
+def result_card(title, p, kind, icon, key):
     pct, lvl = round(p * 100), level(p)
     return (f'<div class="rcard {kind}"><div class="rhead"><span class="ico">{icon}</span>'
-            f'<div><div class="rtitle">{title}</div><div class="rsub">Risk estimate</div></div>'
+            f'<div><div class="rtitle">{title}</div><div class="rsub">Risk score</div></div>'
             f'<span class="pill" style="--c:{COLORS[lvl]}">{lvl}</span></div>'
             f'<div class="ring" style="--p:{pct};--c:{COLORS[lvl]}"><div class="ringtxt"><b>{pct}%</b><span>{lvl} risk</span></div></div>'
-            f'<div class="rtext">{MEANING[lvl]}</div></div>')
-
-
-def tips_card(title, icon, p, base_tips, extra_tips):
-    lvl = level(p)
-    col = COLORS[lvl]
-    items = "".join(f'<div class="titem extra" style="--c:{col}"><span class="te">{e}</span><span>{t}</span></div>'
-                    for e, t in extra_tips)
-    items += "".join(f'<div class="titem"><span class="te">{e}</span><span>{t}</span></div>' for e, t in base_tips)
-    return (f'<div class="tcard" style="--c:{col}"><div class="thead"><span>{icon}</span><b>{title}</b>'
-            f'<span class="pill" style="--c:{col}">{lvl} risk</span></div>{items}</div>')
+            f'<div class="rtext">{MEANING[lvl]}</div>'
+            f'<div class="tip"><b>What you can do</b>{TIPS[key][lvl]}</div></div>')
 
 
 def quote_html(text, author):
@@ -301,14 +241,23 @@ def factors_card(title, kind, model, top=5):
     return f'<div class="fcard {kind}"><h4>{title}</h4>{rows}</div>'
 
 
+def bmi_category(v):
+    return "Underweight" if v < 18.5 else "Normal" if v < 25 else "Overweight" if v < 30 else "Obese range"
+
+
+# ------------------------------------------------------------------ header
 st.markdown(
-    '<div class="hero"><span class="tag"><i></i>AI health risk screening</span>'
-    '<h1>Disease Risk Prediction</h1>'
-    '<p>Estimate your diabetes and heart disease risk with a Random Forest model, and see how blood sugar changes the heart estimate.</p>'
+    '<div class="hero"><span class="tag"><i></i>Free health risk check</span>'
+    '<h1>Check your health risk in 2 minutes</h1>'
+    '<p>Answer a few simple questions to get an easy-to-read estimate of your diabetes and heart disease risk.</p>'
     '<svg class="ecg" viewBox="0 0 420 44" preserveAspectRatio="none"><path d="M0 24 H70 L82 24 L92 8 L104 40 '
     'L114 24 H190 L202 24 L212 6 L224 42 L234 24 H310 L322 24 L332 10 L344 38 L354 24 H420"/></svg></div>'
-    '<div class="chips"><span class="chip c1">🌲 Random Forest</span><span class="chip c2">🩸 Diabetes</span>'
-    '<span class="chip c3">❤️ Heart disease</span></div>',
+    '<div class="chips"><span class="chip c1">🔒 Your answers are not saved</span><span class="chip c2">🩸 Diabetes</span>'
+    '<span class="chip c3">❤️ Heart disease</span></div>'
+    '<div class="steps">'
+    '<div class="step"><b>1</b><span>Enter your details</span></div>'
+    '<div class="step"><b>2</b><span>Tap Check my risk</span></div>'
+    '<div class="step"><b>3</b><span>Read your results</span></div></div>',
     unsafe_allow_html=True,
 )
 
@@ -317,50 +266,61 @@ if "quote" not in st.session_state:
 st.markdown(quote_html(*st.session_state["quote"]), unsafe_allow_html=True)
 st.write("")
 
-tab_you, tab_d, tab_h = st.tabs(["👤 About you", "🩸 Diabetes details", "❤️ Heart details"])
+tab_basic, tab_lab = st.tabs(["1 · Basic details", "2 · Lab report (optional)"])
 
-with tab_you:
+# ------------------------------------------------------------------ inputs
+with tab_basic:
+    st.markdown('<div class="help">Things you can find out at home or from a quick check-up.</div>', unsafe_allow_html=True)
     c1, c2 = st.columns(2)
-    age = c1.number_input("Age", 1, 100, 45)
+    age = c1.number_input("Age (years)", 1, 100, 40)
     sex = c2.selectbox("Sex", ["Male", "Female"])
-    glucose = st.number_input("Fasting glucose (mg/dL)", 40, 400, 110,
-                              help="Above 120 mg/dL counts as high fasting sugar for the heart model.")
-
-with tab_d:
-    a, b = st.columns(2)
-    preg = a.number_input("Pregnancies", 0, 20, 0)
-    dbp = b.number_input("Diastolic BP (mmHg)", 30, 140, 75)
-    skin = a.number_input("Skin thickness (mm)", 5, 100, 25)
-    insulin = b.number_input("Insulin (mu U/ml)", 0, 900, 80)
-    dpf = a.number_input("Diabetes pedigree function", 0.05, 2.5, 0.4)
-
-    st.markdown('<div class="sub-title">⚖️ BMI calculator</div>', unsafe_allow_html=True)
-    w_col, h_col = st.columns(2)
-    weight = w_col.number_input("Weight (kg)", 20.0, 300.0, 70.0, step=0.5)
-    height = h_col.number_input("Height (cm)", 100.0, 250.0, 170.0, step=0.5)
-    bmi_raw = weight / ((height / 100) ** 2)
-    bmi = round(min(max(bmi_raw, 10.0), 70.0), 1)   # keep inside the range the model was trained on
-    st.markdown(bmi_card(bmi_raw), unsafe_allow_html=True)
-    if bmi_raw != bmi:
-        st.warning("This BMI is outside the usual range (10 to 70). Please re-check your weight and height.")
-
-with tab_h:
-    a, b = st.columns(2)
-    cp_label = a.selectbox("Chest pain level", list(CHEST_PAIN), index=0)
+    c1, c2 = st.columns(2)
+    height = c1.number_input("Height (cm)", 100, 220, 170)
+    weight = c2.number_input("Weight (kg)", 25, 250, 70)
+    bmi = round(weight / ((height / 100) ** 2), 1)
+    st.markdown(f'<div class="bmi">Your BMI: {bmi} · {bmi_category(bmi)}</div>', unsafe_allow_html=True)
+    c1, c2 = st.columns(2)
+    sbp = c1.number_input("Blood pressure: top number (mmHg)", 80, 220, 120,
+                          help="Systolic pressure. A typical healthy reading is around 120.")
+    dbp = c2.number_input("Blood pressure: bottom number (mmHg)", 30, 140, 80,
+                          help="Diastolic pressure. A typical healthy reading is around 80.")
+    c1, c2 = st.columns(2)
+    glucose = c1.number_input("Fasting blood sugar (mg/dL)", 40, 400, 95,
+                              help="Blood sugar after not eating for 8 hours. Above 120 counts as high here.")
+    chol = c2.number_input("Cholesterol (mg/dL)", 100, 600, 190,
+                           help="Total cholesterol from a blood test.")
+    c1, c2 = st.columns(2)
+    cp_label = c1.selectbox("Chest pain level", list(CHEST_PAIN), index=0)
     cp = CHEST_PAIN[cp_label]
-    a.caption(f"Medical type: {CHEST_PAIN_TYPE[cp_label]}")
-    sbp = b.number_input("Resting systolic BP (mmHg)", 80, 220, 130)
-    chol = a.number_input("Cholesterol (mg/dL)", 100, 600, 220)
-    ecg = b.selectbox("Resting ECG (0-2)", [0, 1, 2])
-    hr = a.number_input("Max heart rate", 60, 220, 150)
-    exang = b.selectbox("Exercise-induced angina", ["No", "Yes"])
-    oldpeak = a.number_input("ST depression (oldpeak)", 0.0, 7.0, 1.0)
-    slope = b.selectbox("ST slope (1-3)", [1, 2, 3], index=1)
-    ca = a.selectbox("Major vessels (0-3)", [0, 1, 2, 3])
-    thal = b.selectbox("Thalassemia (3 normal, 6 fixed, 7 reversible)", [3, 6, 7])
+    c1.caption(f"Medical type: {CHEST_PAIN_TYPE[cp_label]}")
+    exang = c2.selectbox("Chest pain during exercise?", ["No", "Yes"])
+    if sex == "Female":
+        preg = st.number_input("Number of pregnancies", 0, 20, 0)
+    else:
+        preg = 0
+
+with tab_lab:
+    st.markdown('<div class="help">Optional. These come from lab or hospital reports. '
+                'If you do not have them, keep the typical values already filled in.</div>', unsafe_allow_html=True)
+    a, b = st.columns(2)
+    insulin = a.number_input("Insulin level (mu U/ml)", 0, 900, 80)
+    skin = b.number_input("Skin fold thickness (mm)", 5, 100, 25)
+    dpf = a.number_input("Diabetes family history score", 0.05, 2.5, 0.4,
+                         help="A score that reflects diabetes in your relatives. Typical value is about 0.4.")
+    hr = b.number_input("Highest heart rate in exercise test", 60, 220, 150)
+    ecg_label = a.selectbox("Resting ECG result", list(ECG), index=0)
+    slope_label = b.selectbox("Exercise ECG slope", list(SLOPE), index=1)
+    oldpeak = a.number_input("ST depression (oldpeak)", 0.0, 7.0, 1.0,
+                             help="A measurement from an exercise ECG test.")
+    ca = b.selectbox("Blocked vessels seen on scan (0 to 3)", [0, 1, 2, 3])
+    thal_label = a.selectbox("Thalassemia blood test", list(THAL), index=0)
+    ecg, slope, thal = ECG[ecg_label], SLOPE[slope_label], THAL[thal_label]
 
 st.write("")
-if st.button("Check my risk", type="primary"):
+go = st.button("Check my risk", type="primary")
+
+# ------------------------------------------------------------------ results
+if go:
     d_row = pd.DataFrame([[preg, glucose, dbp, skin, insulin, bmi, dpf, age]],
                          columns=["Pregnancies", "Glucose", "BloodPressure", "SkinThickness",
                                   "Insulin", "BMI", "DiabetesPedigreeFunction", "Age"])
@@ -378,53 +338,54 @@ if st.button("Check my risk", type="primary"):
 
     p_h = heart_prob(fbs)
     p_lo, p_hi = heart_prob(0), heart_prob(1)
+    lvl_d, lvl_h = level(p_d), level(p_h)
+    tone = max(lvl_d, lvl_h, key=lambda x: ORDER[x])
+    icon, head, sub = HEADLINE[tone]
 
     st.markdown('<div class="section-title">Your results</div>', unsafe_allow_html=True)
-    st.markdown(f'<div class="rgrid">{result_card("Diabetes", p_d, "d", "🩸")}'
-                f'{result_card("Heart disease", p_h, "h", "❤️")}</div>', unsafe_allow_html=True)
-
-    # ----- personal tips from the values entered (shown first in each card) -----
-    bmi_cat, _ = bmi_category(bmi)
-    d_extra, h_extra = [], []
-    if bmi >= 25:
-        d_extra.append(("⚖️", f"Your BMI is {bmi:.1f} ({bmi_cat}). Gradual weight loss can lower your diabetes risk."))
-    elif bmi < 18.5:
-        d_extra.append(("⚖️", f"Your BMI is {bmi:.1f} (Underweight). Aim for balanced, nutritious meals."))
-    if glucose >= 100:
-        d_extra.append(("🩸", f"Your fasting glucose is {glucose} mg/dL, above the normal level (under 100). Discuss it with a doctor."))
-    if sbp >= 130:
-        h_extra.append(("💓", f"Your resting systolic BP is {sbp} mmHg, above the healthy level (under 130). Reduce salt and get it rechecked."))
-    if chol >= 240:
-        h_extra.append(("🧈", f"Your cholesterol is {chol} mg/dL, which is high. Cut saturated fat and ask about a lipid profile."))
-    if bmi >= 25:
-        h_extra.append(("⚖️", f"A BMI of {bmi:.1f} adds strain on the heart. Weight management helps."))
-
-    st.markdown('<div class="section-title">Health tips for you</div>', unsafe_allow_html=True)
     st.markdown(
-        '<div class="tgrid">'
-        f'{tips_card("Diabetes tips", "🩸", p_d, TIPS["diabetes"][level(p_d)], d_extra)}'
-        f'{tips_card("Heart health tips", "❤️", p_h, TIPS["heart"][level(p_h)], h_extra)}'
-        '</div>', unsafe_allow_html=True)
-
-    st.markdown('<div class="section-title">How blood sugar changes heart risk</div>', unsafe_allow_html=True)
-    st.markdown(
-        '<div class="panel">'
-        f'<p>Same person, only fasting blood sugar changed. Heart risk moves by <b>{p_hi - p_lo:+.0%}</b>.</p>'
-        f'{bar("Normal fasting sugar", p_lo)}{bar("High fasting sugar", p_hi)}</div>',
+        f'<div class="overall" style="--c:{COLORS[tone]}"><div class="big">{icon}</div><div><h3>{head}</h3>'
+        f'<p>{sub}</p><small>Diabetes: {lvl_d} · Heart disease: {lvl_h}</small></div></div>'
+        f'<div class="rgrid">{result_card("Diabetes", p_d, "d", "🩸", "diabetes")}'
+        f'{result_card("Heart disease", p_h, "h", "❤️", "heart")}</div>',
         unsafe_allow_html=True,
     )
 
-    st.markdown('<div class="section-title">What the model weighs most</div>', unsafe_allow_html=True)
-    st.markdown(f'<div class="fgrid">{factors_card("Diabetes model", "d", models["diabetes"])}'
-                f'{factors_card("Heart model", "h", models["heart"])}</div>', unsafe_allow_html=True)
-    st.caption("Importance is measured across the whole training data, not for this one person.")
+    delta = (p_hi - p_lo) * 100
+    if delta > 0.5:
+        reading = f"For this profile, high blood sugar raises the heart risk score by about {delta:.0f} points."
+    elif delta < -0.5:
+        reading = "For this profile, high blood sugar does not raise the heart risk score."
+    else:
+        reading = "For this profile, blood sugar makes little difference to the heart risk score."
+    st.markdown('<div class="section-title">Does blood sugar affect your heart risk?</div>', unsafe_allow_html=True)
+    st.markdown(
+        '<div class="panel">'
+        f'<p>We compared the same person with normal vs high fasting blood sugar (above 120 mg/dL). {reading}</p>'
+        f'{bar("Normal blood sugar", p_lo)}{bar("High blood sugar", p_hi)}</div>',
+        unsafe_allow_html=True,
+    )
 
-    tone = level(max(p_d, p_h))
+    with st.expander("Curious how the model decides?"):
+        st.markdown(f'<div class="fgrid">{factors_card("Diabetes model", "d", models["diabetes"])}'
+                    f'{factors_card("Heart model", "h", models["heart"])}</div>', unsafe_allow_html=True)
+        st.caption("These are the inputs the Random Forest model relies on most across all its training data, not for you alone.")
+
+    summary = (
+        "DISEASE RISK CHECK SUMMARY\n"
+        f"Diabetes risk score: {p_d:.0%} ({lvl_d})\n"
+        f"Heart disease risk score: {p_h:.0%} ({lvl_h})\n"
+        f"Overall: {head}\n\n"
+        f"Age {age}, {sex}, BMI {bmi}, BP {sbp}/{dbp} mmHg, fasting sugar {glucose} mg/dL, cholesterol {chol} mg/dL.\n\n"
+        "This is an educational estimate, not a medical diagnosis. Please consult a doctor."
+    )
+    st.download_button("Download my summary", summary, file_name="risk_summary.txt")
+
     st.markdown(quote_html(*RESULT_QUOTES[tone]), unsafe_allow_html=True)
     st.markdown(
-        '<div class="note">This is an educational risk estimate, not a medical diagnosis. The tips are general '
-        'health guidance, not medical treatment. The diabetes and heart models are trained on separate datasets, '
-        'so the blood sugar link is an association the model learned, not proof of cause.</div>',
+        '<div class="note">This is an educational risk score from a Random Forest model, not a diagnosis and not the '
+        'exact chance of getting a disease. The diabetes and heart models are trained on separate datasets, so the '
+        'blood sugar link is an association the model learned, not proof of cause. Please consult a doctor for medical advice.</div>',
         unsafe_allow_html=True,
     )
 
