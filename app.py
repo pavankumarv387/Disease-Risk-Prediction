@@ -56,6 +56,58 @@ ECG = {"Normal": 0, "ST-T wave abnormality": 1, "Left ventricular hypertrophy": 
 SLOPE = {"Upsloping": 1, "Flat": 2, "Downsloping": 3}
 THAL = {"Normal": 3, "Fixed defect": 6, "Reversible defect": 7}
 
+# General food guidance (common dietary advice for diabetes and heart health, with Indian examples).
+FOOD = {
+    "diabetes": {
+        "title": "Diabetes-friendly eating", "icon": "🩸", "kind": "d",
+        "groups": [
+            ("good", "Eat more", [
+                "Non-starchy vegetables: spinach, beans, gourds, cabbage, cauliflower",
+                "Dal, sprouts, chickpeas and other legumes",
+                "Whole grains and millets: ragi, jowar, oats, brown rice",
+                "Lean protein: fish, eggs, skinless chicken, paneer",
+                "Unsweetened curd or buttermilk, and a small handful of nuts",
+            ]),
+            ("warn", "In moderation", [
+                "Rice, chapati and bread: keep portions small",
+                "Whole fruits (not juice): one serving at a time",
+                "Potato, sweet potato and other starchy vegetables",
+                "Honey and jaggery: they are still sugar",
+            ]),
+            ("bad", "Limit or avoid", [
+                "Sugary drinks, packaged juices, sweets and desserts",
+                "Maida, white bread and bakery items",
+                "Deep-fried snacks and packaged foods",
+                "Extra sugar in tea and coffee, and alcohol",
+            ]),
+        ],
+    },
+    "heart": {
+        "title": "Heart-healthy eating", "icon": "❤️", "kind": "h",
+        "groups": [
+            ("good", "Eat more", [
+                "A variety of vegetables and fruits every day",
+                "Whole grains, oats and millets",
+                "Dal, beans and other legumes",
+                "Oily fish such as sardine or mackerel, about twice a week",
+                "Unsalted nuts and seeds such as flaxseed",
+            ]),
+            ("warn", "In moderation", [
+                "Cooking oil: use small amounts of groundnut, sunflower or olive oil",
+                "Dairy: choose low-fat milk and curd",
+                "Eggs and skinless chicken",
+                "Tea and coffee without much sugar",
+            ]),
+            ("bad", "Limit or avoid", [
+                "Salt, pickles, papad and salty snacks (aim for under 5 g of salt a day)",
+                "Deep-fried food such as samosa, pakora and chips",
+                "Ghee, butter, vanaspati and too much coconut oil",
+                "Red and processed meat, sugary drinks and alcohol",
+            ]),
+        ],
+    },
+}
+
 FRIENDLY = {
     "BMI": "BMI", "Glucose": "Blood sugar",
     "BloodPressure": "Blood pressure", "SkinThickness": "Skin thickness",
@@ -190,6 +242,30 @@ h1, h2, h3, p, label, button, input, textarea, li, .stTabs button {font-family: 
 .fcard.h {--g1: #E11D48; --g2: #F97316;}
 @media (max-width: 520px) {.barrow {grid-template-columns: 1fr 3rem;} .barl {grid-column: 1 / -1;}}
 
+/* ---------- food guide ---------- */
+.plate {display: flex; align-items: center; gap: 1.4rem; flex-wrap: wrap; padding: 1.1rem 1.3rem; margin-bottom: 1rem; border-radius: 18px;
+  border: 1px solid rgba(128,128,128,.25); background: rgba(128,128,128,.07);}
+.disc {flex: none; width: 118px; height: 118px; border-radius: 50%; border: 6px solid rgba(128,128,128,.35);
+  background: conic-gradient(#16A34A 0 50%, #F59E0B 0 75%, #2563EB 0 100%);}
+.plate ul {list-style: none; margin: 0; padding: 0; flex: 1 1 220px;}
+.plate li {display: flex; align-items: center; gap: .6rem; margin: .35rem 0; font-size: .93rem; line-height: 1.35; font-weight: 600;}
+.plate li i {flex: none; width: 14px; height: 14px; border-radius: 4px;}
+.plate h4 {margin: 0 0 .4rem; font-size: 1rem; font-weight: 800;}
+.food {position: relative; overflow: hidden; padding: 1.3rem 1.2rem 1rem; border-radius: 20px; border: 1px solid rgba(128,128,128,.25);
+  background: linear-gradient(160deg, color-mix(in srgb, var(--g1) 9%, transparent), color-mix(in srgb, var(--g2) 5%, transparent));}
+.food::before {content: ""; position: absolute; left: 0; right: 0; top: 0; height: 6px; background: linear-gradient(90deg, var(--g1), var(--g2));}
+.food.d {--g1: #2563EB; --g2: #06B6D4;}
+.food.h {--g1: #E11D48; --g2: #F97316;}
+.food .rhead {margin-bottom: .6rem;}
+.grp {margin: .7rem 0 0; padding: .7rem .9rem; border-radius: 14px; border-left: 5px solid var(--c); background: rgba(128,128,128,.10);
+  background: color-mix(in srgb, var(--c) 10%, transparent);}
+.grp.good {--c: #16A34A;} .grp.warn {--c: #D97706;} .grp.bad {--c: #DC2626;}
+.grp h5 {margin: 0 0 .35rem; font-size: .92rem; font-weight: 800; color: var(--c);}
+.grp ul {margin: 0; padding-left: 1.1rem;}
+.grp li {font-size: .9rem; line-height: 1.45; margin: .15rem 0;}
+.focus {display: flex; gap: .8rem; align-items: flex-start; margin: .55rem 0; line-height: 1.5;}
+.focus .e {font-size: 1.4rem; line-height: 1.2;}
+.focus b {display: block;}
 .note {margin-top: 1.3rem; font-size: .84rem; opacity: .68; line-height: 1.5;}
 .foot {margin-top: 2.2rem; padding-top: 1rem; border-top: 1px solid rgba(128,128,128,.25); text-align: center; font-size: .8rem; opacity: .6;}
 </style>
@@ -245,6 +321,36 @@ def bmi_category(v):
     return "Underweight" if v < 18.5 else "Normal" if v < 25 else "Overweight" if v < 30 else "Obese range"
 
 
+def food_card(key):
+    f = FOOD[key]
+    groups = "".join(
+        f'<div class="grp {cls}"><h5>{name}</h5><ul>' + "".join(f"<li>{i}</li>" for i in items) + "</ul></div>"
+        for cls, name, items in f["groups"])
+    return (f'<div class="food {f["kind"]}"><div class="rhead"><span class="ico">{f["icon"]}</span>'
+            f'<div class="rtitle">{f["title"]}</div></div>{groups}</div>')
+
+
+def plate_html():
+    return ('<div class="plate"><div class="disc"></div><ul><h4>The healthy plate</h4>'
+            '<li><i style="background:#16A34A"></i>Half: vegetables and salad</li>'
+            '<li><i style="background:#F59E0B"></i>One quarter: whole grains, millets or roti</li>'
+            '<li><i style="background:#2563EB"></i>One quarter: dal, egg, fish or lean meat</li></ul></div>')
+
+
+def food_focus(lvl_d, lvl_h, glucose, sbp, chol):
+    out = []
+    if ORDER[lvl_d] >= 1 or glucose > 120:
+        out.append(("🩸", "For blood sugar",
+                    "Cut sugary drinks and sweets, and choose whole grains, millets and dal over white rice and maida."))
+    if ORDER[lvl_h] >= 1 or sbp >= 130 or chol >= 200:
+        out.append(("❤️", "For your heart",
+                    "Eat less salt and fried food, and add vegetables, fruit, nuts and oily fish."))
+    if not out:
+        out.append(("🥗", "Keep it balanced",
+                    "Keep eating a mix of vegetables, whole grains, protein and fruit, and limit sweets and fried food."))
+    return out
+
+
 # ------------------------------------------------------------------ header
 st.markdown(
     '<div class="hero"><span class="tag"><i></i>Free health risk check</span>'
@@ -266,7 +372,7 @@ if "quote" not in st.session_state:
 st.markdown(quote_html(*st.session_state["quote"]), unsafe_allow_html=True)
 st.write("")
 
-tab_basic, tab_lab = st.tabs(["1 · Basic details", "2 · Lab report (optional)"])
+tab_basic, tab_lab, tab_food = st.tabs(["1 · Basic details", "2 · Lab report (optional)", "3 · Food guide"])
 
 # ------------------------------------------------------------------ inputs
 with tab_basic:
@@ -315,6 +421,15 @@ with tab_lab:
     ca = b.selectbox("Blocked vessels seen on scan (0 to 3)", [0, 1, 2, 3])
     thal_label = a.selectbox("Thalassemia blood test", list(THAL), index=0)
     ecg, slope, thal = ECG[ecg_label], SLOPE[slope_label], THAL[thal_label]
+
+with tab_food:
+    st.markdown('<div class="help">What to eat and what to limit for a healthy sugar level and a healthy heart. '
+                'This is general guidance, not a personal diet plan.</div>', unsafe_allow_html=True)
+    st.markdown(plate_html(), unsafe_allow_html=True)
+    st.markdown(f'<div class="fgrid">{food_card("diabetes")}{food_card("heart")}</div>', unsafe_allow_html=True)
+    st.caption("Eat regular meals, watch portion sizes, drink plenty of water and stay active. "
+               "If you are pregnant, have kidney disease or take medicines for diabetes or blood pressure, "
+               "follow your doctor's or dietitian's advice.")
 
 st.write("")
 go = st.button("Check my risk", type="primary")
@@ -366,6 +481,13 @@ if go:
         unsafe_allow_html=True,
     )
 
+    focus = food_focus(lvl_d, lvl_h, glucose, sbp, chol)
+    st.markdown('<div class="section-title">Your food focus</div>', unsafe_allow_html=True)
+    st.markdown('<div class="panel">' + "".join(
+        f'<div class="focus"><span class="e">{e}</span><div><b>{t}</b>{d}</div></div>' for e, t, d in focus)
+        + '<div class="note" style="margin-top:.6rem">See the full list of foods to eat and limit in the '
+          '<b>3 · Food guide</b> tab above.</div></div>', unsafe_allow_html=True)
+
     with st.expander("Curious how the model decides?"):
         st.markdown(f'<div class="fgrid">{factors_card("Diabetes model", "d", models["diabetes"])}'
                     f'{factors_card("Heart model", "h", models["heart"])}</div>', unsafe_allow_html=True)
@@ -376,6 +498,7 @@ if go:
         f"Diabetes risk score: {p_d:.0%} ({lvl_d})\n"
         f"Heart disease risk score: {p_h:.0%} ({lvl_h})\n"
         f"Overall: {head}\n\n"
+        "Food focus:\n" + "\n".join(f"- {t}: {d}" for _, t, d in focus) + "\n\n"
         f"Age {age}, {sex}, BMI {bmi}, BP {sbp}/{dbp} mmHg, fasting sugar {glucose} mg/dL, cholesterol {chol} mg/dL.\n\n"
         "This is an educational estimate, not a medical diagnosis. Please consult a doctor."
     )
