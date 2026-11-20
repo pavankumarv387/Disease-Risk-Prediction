@@ -1,0 +1,6 @@
+# Save this file as  .streamlit/config.toml  in your GitHub repo (next to app.py)
+[theme]
+primaryColor = "#1D4ED8"
+
+[client]
+toolbarMode = "minimal"
