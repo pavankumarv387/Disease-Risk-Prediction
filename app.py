@@ -83,7 +83,7 @@ FOOD = {
         ],
     },
     "heart": {
-        "title": "Heart-healthy eating", "icon": "❤️", "kind": "h",
+        "title": "Heart-healthy eating", "icon": "🫀", "kind": "h",
         "groups": [
             ("good", "Eat more", [
                 "A variety of vegetables and fruits every day",
