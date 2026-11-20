@@ -424,7 +424,7 @@ if "quote" not in st.session_state:
 st.markdown(quote_html(*st.session_state["quote"]), unsafe_allow_html=True)
 st.write("")
 
-tab_basic, tab_lab, tab_food = st.tabs(["①  Health details", "②  Lab values", "③  Nutrition guide"])
+tab_basic, tab_lab, tab_food = st.tabs(["Health details", "Lab values", "Nutrition guide"])
 assumed = []
 
 # ------------------------------------------------------------------ inputs
