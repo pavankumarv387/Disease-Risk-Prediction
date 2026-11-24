@@ -1,4 +1,5 @@
 import random
+from datetime import datetime, timedelta, timezone
 
 import joblib
 import pandas as pd
@@ -229,6 +230,10 @@ label, .stRadio label {font-weight: 600;}
 /* ---------- results ---------- */
 .section-title {font-size: 1.25rem; font-weight: 800; margin: 2.2rem 0 1rem; letter-spacing: -0.01em; display: flex; align-items: center; gap: .6rem;}
 .section-title::before {content: ""; width: 5px; height: 1.3rem; border-radius: 4px; background: linear-gradient(180deg, #1D4ED8, #0D9488);}
+.stamp {display: inline-block; padding: .35rem .85rem; border-radius: 99px; font-size: .88rem; font-weight: 700; margin: -.4rem 0 .9rem;
+  background: rgba(37,99,235,.12); border: 1px solid rgba(37,99,235,.4);}
+.cmp {margin: 1rem 0 0; padding: .9rem 1.1rem; border-radius: 14px; border: 1px solid rgba(128,128,128,.25); background: rgba(128,128,128,.06);
+  line-height: 1.6; font-size: .93rem;}
 .legend {display: flex; gap: .5rem; flex-wrap: wrap; margin: -.3rem 0 .6rem; font-size: .82rem; font-weight: 700;}
 .legend span {padding: .25rem .7rem; border-radius: 99px; color: var(--c); border: 1px solid var(--c); background: rgba(128,128,128,.1);}
 .scorenote {font-size: .88rem; opacity: .8; margin: 0 0 1rem; line-height: 1.5;}
@@ -500,17 +505,17 @@ with st.expander("📄 Optional: I have lab or ECG reports"):
 used_typical = (insulin == 80 and skin == 25 and ecg == 0 and hr == HR_DEFAULT and slope == 1
                 and oldpeak == 0.0 and ca == 0 and thal == 3)
 
+IST = timezone(timedelta(hours=5, minutes=30))
+inputs_sig = (age, sex, height, weight, preg, sbp, dbp, glucose, chol, cp_label, exang, family,
+              skin, insulin, ecg, hr, oldpeak, slope, ca, thal)
+
 st.write("")
 if st.button("🔍 Check my risk", type="primary", use_container_width=True):
-    st.session_state["checked"] = True
-
-if st.session_state.get("checked"):
     d_row = pd.DataFrame([[preg, glucose, dbp, skin, insulin, bmi, dpf, age]],
                          columns=["Pregnancies", "Glucose", "BloodPressure", "SkinThickness",
                                   "Insulin", "BMI", "DiabetesPedigreeFunction", "Age"])
     p_d = models["diabetes"].predict_proba(d_row)[0, 1]
 
-    fbs = int(glucose > 120)
     h_cols = ["age", "sex", "chest_pain_type", "resting_bp", "cholesterol",
               "fasting_blood_sugar", "resting_ecg", "max_heart_rate", "exercise_angina",
               "oldpeak", "slope", "num_major_vessels", "thalassemia"]
@@ -520,11 +525,28 @@ if st.session_state.get("checked"):
                              int(exang == "Yes"), oldpeak, slope, ca, thal]], columns=h_cols)
         return models["heart"].predict_proba(row)[0, 1]
 
-    p_h = heart_prob(fbs)
-    p_lo, p_hi = heart_prob(0), heart_prob(1)
+    snap = {"time": datetime.now(IST), "sig": inputs_sig, "age": age, "sex": sex, "bmi": bmi,
+            "glucose": glucose, "sbp": sbp, "chol": chol, "used_typical": used_typical,
+            "p_d": p_d, "p_h": heart_prob(int(glucose > 120)), "p_lo": heart_prob(0), "p_hi": heart_prob(1)}
+    history = st.session_state.setdefault("history", [])   # kept only while this page stays open
+    history.append(snap)
+    del history[:-5]
+    st.session_state["last"] = snap
+
+snap = st.session_state.get("last")
+if snap:
+    # results always come from the moment the button was pressed
+    age, sex, bmi = snap["age"], snap["sex"], snap["bmi"]
+    glucose, sbp, chol = snap["glucose"], snap["sbp"], snap["chol"]
+    p_d, p_h, p_lo, p_hi = snap["p_d"], snap["p_h"], snap["p_lo"], snap["p_hi"]
+    used_typical = snap["used_typical"]
+    stamp = snap["time"].strftime("%d %b %Y, %I:%M %p IST")
 
     # ---------------- results ----------------
     st.markdown('<div class="section-title">Your results</div>', unsafe_allow_html=True)
+    st.markdown(f'<div class="stamp">🕒 Last checked: {stamp}</div>', unsafe_allow_html=True)
+    if snap["sig"] != inputs_sig:
+        st.info("You changed some answers after this check. Tap **Check my risk** again to update the results.")
     st.markdown('<div class="legend"><span style="--c:#16A34A">Low: under 33%</span>'
                 '<span style="--c:#D97706">Moderate: 33% to 65%</span><span style="--c:#DC2626">High: 66% or more</span></div>'
                 '<p class="scorenote">These are risk scores from a computer model, not the exact chance of getting a disease.</p>',
@@ -533,6 +555,15 @@ if st.session_state.get("checked"):
                 f'{result_card("Heart disease", p_h, "h", "❤️")}</div>', unsafe_allow_html=True)
     if used_typical:
         st.caption("The optional lab and ECG details used typical healthy values, so the heart result is less precise.")
+    if len(st.session_state.get("history", [])) >= 2:
+        prev = st.session_state["history"][-2]
+        pstamp = prev["time"].strftime("%d %b %Y, %I:%M %p")
+        dd, dh = round((p_d - prev["p_d"]) * 100), round((p_h - prev["p_h"]) * 100)
+        st.markdown(f'<div class="cmp"><b>Compared with your previous check ({pstamp}):</b><br>'
+                    f'🩸 Diabetes: {round(prev["p_d"] * 100)}% → {round(p_d * 100)}% ({dd:+d} points)<br>'
+                    f'❤️ Heart disease: {round(prev["p_h"] * 100)}% → {round(p_h * 100)}% ({dh:+d} points)<br>'
+                    '<small>Checks are kept only while this page stays open. Nothing is saved.</small></div>',
+                    unsafe_allow_html=True)
 
     # ---------------- tips ----------------
     bmi_cat, _ = bmi_category(bmi)
@@ -592,7 +623,7 @@ if st.session_state.get("checked"):
         st.caption("Importance is measured across the whole training data, not for this one person.")
 
     # ---------------- download ----------------
-    lines = ["DISEASE RISK PREDICTION - MY SUMMARY", "",
+    lines = ["DISEASE RISK PREDICTION - MY SUMMARY", f"Checked on: {stamp}", "",
              f"Age: {age} | Sex: {sex} | BMI: {bmi:.1f} ({bmi_cat})", "",
              f"Diabetes risk score: {round(p_d * 100)}% ({level(p_d)})",
              f"Heart disease risk score: {round(p_h * 100)}% ({level(p_h)})", "", "Diabetes tips:"]
@@ -612,4 +643,4 @@ if st.session_state.get("checked"):
     )
 
 st.markdown('<div class="foot">Disease Risk Prediction · Random Forest · Streamlit<br>'
-            'Team 45 - Artificial Intelligence and Data Science · HNN College of Engineering</div>', unsafe_allow_html=True)
+            'Artificial Intelligence and Data Science · HNN College of Engineering</div>', unsafe_allow_html=True)
