@@ -643,4 +643,4 @@ if snap:
     )
 
 st.markdown('<div class="foot">Disease Risk Prediction · Random Forest · Streamlit<br>'
-            'Artificial Intelligence and Data Science · HNN College of Engineering</div>', unsafe_allow_html=True)
+            'Team:45 - Artificial Intelligence and Data Science · HNN College of Engineering</div>', unsafe_allow_html=True)
