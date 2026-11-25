@@ -1,15 +1,29 @@
 import random
-from datetime import datetime, timedelta, timezone
+from pathlib import Path
 
-import joblib
+import numpy as np
 import pandas as pd
 import streamlit as st
+from sklearn.ensemble import RandomForestClassifier
+from sklearn.impute import SimpleImputer
+from sklearn.metrics import (accuracy_score, confusion_matrix, f1_score, precision_score,
+                             recall_score, roc_auc_score)
+from sklearn.model_selection import StratifiedKFold, cross_val_score, train_test_split
+from sklearn.pipeline import make_pipeline
 
-st.set_page_config(page_title="Disease Risk Prediction", page_icon="🩺", layout="centered")
+st.set_page_config(page_title="HealthGuard AI | Diabetes Risk Check", page_icon="🩺", layout="wide")
+
+COLUMNS = ["Pregnancies", "Glucose", "BloodPressure", "SkinThickness", "Insulin",
+           "BMI", "DiabetesPedigreeFunction", "Age", "Outcome"]
+ZERO_MEANS_MISSING = ["Glucose", "BloodPressure", "SkinThickness", "Insulin", "BMI"]
+FRIENDLY = {
+    "Pregnancies": "Pregnancies", "Glucose": "Blood glucose", "BloodPressure": "Blood pressure",
+    "SkinThickness": "Skin fold thickness", "Insulin": "Insulin level", "BMI": "BMI",
+    "DiabetesPedigreeFunction": "Family history score", "Age": "Age",
+}
 
 COLORS = {"Low": "#16A34A", "Moderate": "#D97706", "High": "#DC2626"}
-CUT_LOW, CUT_HIGH = 0.33, 0.66
-
+ORDER = {"Low": 0, "Moderate": 1, "High": 2}
 QUOTES = [
     ("Prevention is better than cure.", "Proverb"),
     ("Health is wealth.", "Proverb"),
@@ -17,630 +31,585 @@ QUOTES = [
     ("The greatest wealth is health.", "Virgil"),
     ("Early to bed and early to rise makes a man healthy, wealthy, and wise.", "Benjamin Franklin"),
 ]
+RESULT_QUOTES = {"Low": QUOTES[1], "Moderate": QUOTES[0], "High": QUOTES[0]}
 MEANING = {
     "Low": "Few risk signs were found in the details you entered.",
-    "Moderate": "Some risk signs are present. Monitor and consider a check-up.",
-    "High": "Several risk signs are present. A medical check-up is advised.",
+    "Moderate": "Some risk signs were found. Keep an eye on this.",
+    "High": "Several risk signs were found. A check-up is advised.",
 }
-
-# ---------- health tips shown for each risk level ----------
 TIPS = {
-    "diabetes": {
-        "Low": [
-            ("🥗", "Keep a balanced diet with whole grains, vegetables, pulses and fruit."),
-            ("🚶", "Stay active: aim for about 150 minutes of moderate exercise a week."),
-            ("⚖️", "Maintain a healthy weight and BMI."),
-            ("🩺", "Check your fasting blood sugar once a year."),
-        ],
-        "Moderate": [
-            ("🥤", "Cut down on sugary drinks, sweets and refined carbohydrates (white rice, maida)."),
-            ("🚶", "Walk briskly for 30 minutes on most days of the week."),
-            ("⚖️", "If you are overweight, losing even 5-7% of body weight lowers risk."),
-            ("🩺", "Get fasting glucose or HbA1c tested every 6 months."),
-            ("😴", "Sleep 7-8 hours and manage stress; both affect blood sugar."),
-        ],
-        "High": [
-            ("🩺", "Book a doctor visit soon for fasting glucose and HbA1c tests."),
-            ("🥗", "Ask a doctor or dietitian for a meal plan; avoid sugary food and drinks."),
-            ("📈", "Monitor your blood sugar if your doctor advises it."),
-            ("⚠️", "Do not ignore symptoms: excess thirst, frequent urination, blurred vision, slow-healing wounds."),
-            ("🚶", "Stay active with light exercise such as walking, once your doctor agrees."),
-        ],
-    },
-    "heart": {
-        "Low": [
-            ("🥦", "Eat a heart-friendly diet: more fruit and vegetables, less salt and fried food."),
-            ("🏃", "Stay physically active most days of the week."),
-            ("🚭", "Avoid tobacco and limit alcohol."),
-            ("🩺", "Check blood pressure and cholesterol once a year."),
-        ],
-        "Moderate": [
-            ("🧂", "Reduce salt, saturated fat and processed food."),
-            ("🏃", "Do 30 minutes of brisk activity on most days."),
-            ("🚭", "Quit smoking and limit alcohol if you use either."),
-            ("🩺", "Check blood pressure and cholesterol every 6 months."),
-            ("🧘", "Manage stress with rest, breathing exercises or hobbies."),
-        ],
-        "High": [
-            ("🩺", "See a doctor soon for an ECG, blood pressure and cholesterol check."),
-            ("🚨", "Seek urgent care for chest pain, breathlessness, fainting or pain spreading to the arm or jaw."),
-            ("🛑", "Avoid heavy exertion until a doctor has checked your heart."),
-            ("💊", "Take any prescribed medicines regularly and do not stop them on your own."),
-            ("🧂", "Cut salt, fried food and tobacco right away."),
-        ],
-    },
+    "Low": "Keep a balanced diet and stay active.",
+    "Moderate": "Cut down sugary drinks, walk daily and recheck your blood sugar in a few months.",
+    "High": "Please get a fasting blood sugar or HbA1c test and talk to a doctor.",
 }
-
-# ---------- food guide: (text, vegetarian replacement or None to hide for vegetarians) ----------
-SAME = "same"
-FOOD = {
-    "diabetes": {
-        "Eat more": [
-            ("Non-starchy vegetables: spinach, beans, gourds, cabbage, cauliflower", SAME),
-            ("Dal, sprouts, chickpeas and other legumes", SAME),
-            ("Whole grains and millets: ragi, jowar, oats, brown rice", SAME),
-            ("Lean protein: fish, eggs, skinless chicken, paneer", "Lean protein: paneer, tofu, soy chunks"),
-            ("Unsweetened curd or buttermilk, and a small handful of nuts", SAME),
-        ],
-        "In moderation": [
-            ("Rice, chapati and bread: keep portions small", SAME),
-            ("Whole fruits (not juice): one serving at a time", SAME),
-            ("Potato, sweet potato and other starchy vegetables", SAME),
-            ("Honey and jaggery: they are still sugar", SAME),
-        ],
-        "Limit or avoid": [
-            ("Sugary drinks, packaged juices, sweets and desserts", SAME),
-            ("Maida, white bread and bakery items", SAME),
-            ("Deep-fried snacks and packaged foods", SAME),
-            ("Extra sugar in tea and coffee, and alcohol", SAME),
-        ],
-    },
-    "heart": {
-        "Eat more": [
-            ("A variety of vegetables and fruits every day", SAME),
-            ("Whole grains, oats and millets", SAME),
-            ("Dal, beans and other legumes", SAME),
-            ("Oily fish such as sardine or mackerel, about twice a week", None),
-            ("Unsalted nuts and seeds such as flaxseed", SAME),
-        ],
-        "In moderation": [
-            ("Cooking oil: use small amounts of groundnut, sunflower or olive oil", SAME),
-            ("Dairy: choose low-fat milk and curd", SAME),
-            ("Eggs and skinless chicken", None),
-            ("Tea and coffee without much sugar", SAME),
-        ],
-        "Limit or avoid": [
-            ("Salt, pickles, papad and salty snacks (aim for under 5 g of salt a day)", SAME),
-            ("Deep-fried food such as samosa, pakora and chips", SAME),
-            ("Ghee, butter, vanaspati and too much coconut oil", SAME),
-            ("Red and processed meat, sugary drinks and alcohol", "Sugary drinks and alcohol"),
-        ],
-    },
+HEADLINE = {
+    "Low": ("🟢", "Good news: low diabetes risk score", "Keep up your healthy habits and regular check-ups."),
+    "Moderate": ("🟠", "Some diabetes risk signs were found", "A check-up is a good idea. See the recommendations below."),
+    "High": ("🔴", "Higher diabetes risk score: please see a doctor soon",
+             "This tool cannot diagnose. A doctor can run the right tests."),
 }
-FOOD_COLORS = {"Eat more": "#16A34A", "In moderation": "#D97706", "Limit or avoid": "#DC2626"}
-
-# Plain-language chest pain choices; each maps to the dataset's code (1-4) used by the trained models.
-CHEST_PAIN = {
-    "No chest pain": 4,
-    "Mild or occasional discomfort": 3,
-    "Moderate pain or tightness": 2,
-    "Severe pressure or pain (may spread to arm or jaw)": 1,
+# Share of genes held in common with the relative (as used in the published diabetes pedigree function).
+RELATIVES = {
+    "Mother": 0.5, "Father": 0.5, "Full brother or sister": 0.5,
+    "Half brother or sister": 0.25, "Grandparent": 0.25, "Aunt or uncle": 0.25,
+    "Half aunt or half uncle": 0.125, "First cousin": 0.125,
 }
-# Family history shown in words; each maps to an approximate diabetes pedigree function value.
-FAMILY = {
-    "No known diabetes in the family": 0.2,
-    "A parent or sibling has diabetes": 0.5,
-    "Several close relatives have diabetes": 1.0,
-}
-ECG_LABELS = {0: "Normal", 1: "ST-T wave abnormality", 2: "Left ventricular hypertrophy"}
-SLOPE_LABELS = {1: "Upsloping", 2: "Flat", 3: "Downsloping"}
-THAL_LABELS = {3: "Normal", 6: "Fixed defect", 7: "Reversible defect"}
-FRIENDLY = {
-    "BloodPressure": "Blood pressure", "SkinThickness": "Skin thickness",
-    "DiabetesPedigreeFunction": "Family history score", "chest_pain_type": "Chest pain type",
-    "resting_bp": "Resting BP", "fasting_blood_sugar": "Fasting blood sugar", "resting_ecg": "Resting ECG",
-    "max_heart_rate": "Max heart rate", "exercise_angina": "Exercise angina", "oldpeak": "ST depression",
-    "slope": "ST slope", "num_major_vessels": "Major vessels", "thalassemia": "Thalassemia",
-}
+FOOD = [
+    ("good", "🟢", "Eat more", [
+        "Non-starchy vegetables: spinach, beans, gourds, cabbage, cauliflower",
+        "Dal, sprouts, chickpeas and other legumes",
+        "Whole grains and millets: ragi, jowar, oats, brown rice",
+        "Lean protein: fish, eggs, skinless chicken, paneer",
+        "Unsweetened curd or buttermilk, and a small handful of nuts",
+    ]),
+    ("warn", "🟠", "In moderation", [
+        "Rice, chapati and bread: keep portions small",
+        "Whole fruits (not juice): one serving at a time",
+        "Potato, sweet potato and other starchy vegetables",
+        "Honey and jaggery: they are still sugar",
+    ]),
+    ("bad", "🔴", "Limit or avoid", [
+        "Sugary drinks, packaged juices, sweets and desserts",
+        "Maida, white bread and bakery items",
+        "Deep-fried snacks and packaged foods",
+        "Extra sugar in tea and coffee, and alcohol",
+    ]),
+]
 
 CSS = """
 <style>
 @import url('https://fonts.googleapis.com/css2?family=Manrope:wght@400;600;800&display=swap');
-h1, h2, h3, p, label, button, input, textarea, li {font-family: 'Manrope', system-ui, sans-serif;}
+h1, h2, h3, p, label, button, input, textarea, li, .stTabs button {font-family: 'Manrope', system-ui, sans-serif;}
 #MainMenu, footer {visibility: hidden;}
 .stApp {
   background-image:
     radial-gradient(circle at 0% 0%, rgba(37,99,235,.13), transparent 40%),
     radial-gradient(circle at 100% 100%, rgba(13,148,136,.13), transparent 42%);
 }
-.block-container {max-width: 800px; padding-top: 1.5rem; padding-bottom: 3rem;}
-div[data-testid="stVerticalBlockBorderWrapper"] {border-radius: 18px;}
-label, .stRadio label {font-weight: 600;}
+.block-container {max-width: 1120px; padding-top: 1.2rem; padding-bottom: 3rem;}
 
-/* ---------- hero ---------- */
-.hero {position: relative; overflow: hidden; border-radius: 22px; padding: 2rem 1.9rem 1.6rem; color: #fff;
+.brand {display: flex; align-items: center; gap: .8rem; margin-bottom: 1rem;}
+.logo {display: inline-grid; place-items: center; width: 2.6rem; height: 2.6rem; border-radius: 14px; font-size: 1.3rem;
+  background: linear-gradient(135deg, #1D4ED8, #0D9488);}
+.brand b {display: block; font-size: 1.2rem; font-weight: 800; letter-spacing: -0.01em; line-height: 1.1;}
+.brand small {opacity: .7; font-weight: 600;}
+.brand .bt {margin-left: auto; padding: .3rem .8rem; border-radius: 99px; font-size: .78rem; font-weight: 700;
+  border: 1px solid rgba(13,148,136,.5); background: rgba(13,148,136,.14);}
+
+.hero {position: relative; overflow: hidden; border-radius: 24px; padding: 2.3rem 2.2rem 1.8rem; color: #fff;
   background: linear-gradient(135deg, #0B1F44 0%, #12306B 55%, #1D4ED8 100%);
   box-shadow: 0 24px 48px -26px rgba(29,78,216,.85);}
 .hero::before {content: ""; position: absolute; inset: 0; pointer-events: none;
   background-image: linear-gradient(rgba(255,255,255,.06) 1px, transparent 1px), linear-gradient(90deg, rgba(255,255,255,.06) 1px, transparent 1px);
   background-size: 30px 30px;
   -webkit-mask-image: linear-gradient(120deg, transparent 20%, #000 100%); mask-image: linear-gradient(120deg, transparent 20%, #000 100%);}
-.hero::after {content: ""; position: absolute; right: -60px; top: -60px; width: 220px; height: 220px; border-radius: 50%;
+.hero::after {content: ""; position: absolute; right: -60px; top: -60px; width: 260px; height: 260px; border-radius: 50%;
   background: radial-gradient(circle, rgba(94,234,212,.45), transparent 65%); pointer-events: none;}
 .hero > * {position: relative; z-index: 1;}
 .tag {display: inline-flex; align-items: center; gap: .4rem; padding: .3rem .8rem; border-radius: 99px; font-size: .78rem; font-weight: 700;
   background: rgba(255,255,255,.12); border: 1px solid rgba(255,255,255,.28); margin-bottom: .9rem;}
 .tag i {width: 8px; height: 8px; border-radius: 50%; background: #5EEAD4; display: inline-block;}
-.hero h1 {color: #fff !important; font-size: 2.3rem; font-weight: 800; letter-spacing: -0.02em; margin: 0 0 .45rem; padding: 0; line-height: 1.1;}
-.hero p {color: #fff !important; margin: 0; opacity: .9; max-width: 34rem; line-height: 1.6; font-size: 1.02rem;}
-.ecg {width: 100%; max-width: 440px; height: 44px; margin-top: 1.2rem; display: block;}
+.hero h1 {color: #fff !important; font-size: 2.6rem; font-weight: 800; letter-spacing: -0.02em; margin: 0 0 .5rem; padding: 0; line-height: 1.1;}
+.hero p {color: #fff !important; margin: 0; opacity: .88; max-width: 36rem; line-height: 1.6; font-size: 1.05rem;}
+.ecg {width: 100%; max-width: 460px; height: 44px; margin-top: 1.2rem; display: block;}
 .ecg path {fill: none; stroke: #5EEAD4; stroke-width: 2.6; stroke-linecap: round; stroke-linejoin: round;
   stroke-dasharray: 900; stroke-dashoffset: 900; animation: draw 2.4s ease-out forwards;}
 @keyframes draw {to {stroke-dashoffset: 0;}}
 @media (prefers-reduced-motion: reduce) {.ecg path {animation: none; stroke-dashoffset: 0;}}
-
 .chips {display: flex; gap: .5rem; flex-wrap: wrap; margin: 1rem 0 .1rem;}
-.chip {padding: .38rem .9rem; border-radius: 99px; font-weight: 700; font-size: .82rem; color: #fff;}
-.c1 {background: linear-gradient(90deg, #1D4ED8, #0D9488);}
-.c2 {background: linear-gradient(90deg, #2563EB, #06B6D4);}
-.c3 {background: linear-gradient(90deg, #E11D48, #F97316);}
-.c4 {background: linear-gradient(90deg, #475569, #64748B);}
-.steps {display: flex; gap: .6rem; flex-wrap: wrap; margin: 1.1rem 0 .3rem;}
-.stp {flex: 1 1 150px; display: flex; align-items: center; gap: .6rem; padding: .6rem .8rem; border-radius: 14px;
-  border: 1px solid rgba(128,128,128,.25); background: rgba(128,128,128,.07); font-weight: 700; font-size: .9rem;}
-.stp b {display: inline-grid; place-items: center; width: 1.7rem; height: 1.7rem; border-radius: 50%; color: #fff; font-size: .85rem;
-  background: linear-gradient(135deg, #1D4ED8, #0D9488);}
+.chip {padding: .4rem .95rem; border-radius: 99px; font-weight: 700; font-size: .82rem; color: #fff;}
+.c1 {background: linear-gradient(90deg, #2563EB, #06B6D4);}
+.c2 {background: linear-gradient(90deg, #0D9488, #22C55E);}
+.c3 {background: rgba(128,128,128,.35);}
 
-/* ---------- quote ---------- */
-.quote {margin: 1.1rem 0 .5rem; padding: .95rem 1.2rem 1rem 1.4rem; border-radius: 14px; border-left: 5px solid #2563EB;
+.quote {margin: 1rem 0 .5rem; padding: .9rem 1.2rem .95rem 1.4rem; border-radius: 14px; border-left: 5px solid #2563EB;
   background: linear-gradient(120deg, rgba(37,99,235,.12), rgba(13,148,136,.12));
-  font-style: italic; line-height: 1.5; font-size: 1.03rem;}
-.quote small {display: block; font-style: normal; opacity: .75; margin-top: .3rem; font-size: .88rem; font-weight: 600;}
+  font-style: italic; line-height: 1.5; font-size: 1.02rem;}
+.quote small {display: block; font-style: normal; opacity: .7; margin-top: .3rem; font-size: .85rem; font-weight: 600;}
 
-/* ---------- form sections ---------- */
-.step {display: flex; align-items: center; gap: .8rem; margin: .1rem 0 .9rem;}
-.stepno {display: inline-grid; place-items: center; width: 2.3rem; height: 2.3rem; border-radius: 12px; font-size: 1.1rem;
-  background: linear-gradient(135deg, #1D4ED8, #0D9488); box-shadow: 0 8px 18px -8px rgba(29,78,216,.8); flex: none;}
-.steptitle {font-size: 1.15rem; font-weight: 800; line-height: 1.15;}
-.stepsub {font-size: .9rem; opacity: .8; margin-top: .1rem;}
-.hint {padding: .65rem .9rem; border-radius: 12px; font-size: .9rem; line-height: 1.5; margin: .3rem 0 .8rem;
-  background: rgba(37,99,235,.09); border: 1px dashed rgba(37,99,235,.45);}
-.subhead {font-weight: 800; margin: .9rem 0 .2rem; font-size: 1rem;}
+.help {margin: .2rem 0 .8rem; font-size: .9rem; opacity: .78; line-height: 1.5;}
+.sec {display: flex; align-items: center; gap: .5rem; margin: 1.1rem 0 .5rem; font-weight: 800; font-size: 1.05rem;}
+.sec::after {content: ""; flex: 1; height: 1px; background: rgba(128,128,128,.3);}
+.notice {margin: .2rem 0 1rem; padding: .85rem 1rem; border-radius: 14px; font-size: .9rem; line-height: 1.5;
+  border: 1px solid rgba(37,99,235,.35); background: rgba(37,99,235,.10);}
+.notice b {display: block; margin-bottom: .15rem;}
+.stTabs [data-baseweb="tab"] {font-weight: 700; font-size: 1rem;}
+.stTabs [data-baseweb="tab-panel"] {margin-top: .8rem; padding: 1rem 1.2rem .6rem; border-radius: 18px;
+  border: 1px solid rgba(37,99,235,.25); background: rgba(37,99,235,.05);}
+.bmi {display: inline-block; margin: .1rem 0 .4rem; padding: .35rem .8rem; border-radius: 99px; font-weight: 700; font-size: .88rem;
+  background: rgba(37,99,235,.14); border: 1px solid rgba(37,99,235,.35);}
 
-/* ---------- BMI ---------- */
-.bmi {margin: .4rem 0 .6rem; padding: 1.1rem 1.2rem 1rem; border-radius: 16px; border: 1px solid rgba(37,99,235,.28);
-  background: linear-gradient(135deg, rgba(37,99,235,.09), rgba(13,148,136,.09));}
-.bmitop {display: flex; align-items: center; gap: 1rem; margin-bottom: 1rem;}
-.bmil {font-size: .85rem; opacity: .8; font-weight: 700;}
-.bmiv {font-size: 2.1rem; font-weight: 800; line-height: 1.05;}
-.bmibar {position: relative; height: 12px; border-radius: 99px;
-  background: linear-gradient(90deg, #38BDF8 0 14%, #16A34A 14% 40%, #D97706 40% 60%, #DC2626 60% 100%);}
-.bmibar span, .scale span {position: absolute; top: 50%; width: 20px; height: 20px; border-radius: 50%; background: #fff;
-  border: 4px solid #0B1F44; transform: translate(-50%, -50%); box-shadow: 0 2px 8px rgba(0,0,0,.35);}
-.bmiscale {display: flex; justify-content: space-between; gap: .4rem; flex-wrap: wrap; margin-top: .6rem;}
-.bmiscale small {font-size: .78rem; opacity: .8; font-weight: 600;}
-
-.stButton > button, .stDownloadButton > button {width: 100%; border-radius: 12px; font-weight: 800; padding: .85rem 1rem; font-size: 1.06rem; transition: transform .15s ease, box-shadow .15s ease;}
-.stButton > button[kind="primary"], .stButton button[data-testid="stBaseButton-primary"] {
-  border: none; background-image: linear-gradient(100deg, #1D4ED8, #0D9488); background-color: #1D4ED8; color: #fff;
+div[data-testid="stButton"], div[data-testid="stDownloadButton"] {width: 100%;}
+div[data-testid="stButton"] button, div[data-testid="stDownloadButton"] button {
+  width: 100%; border-radius: 12px; font-weight: 800; padding: .8rem 1rem; font-size: 1.06rem; transition: transform .15s ease, box-shadow .15s ease;}
+div[data-testid="stButton"] button[kind="primary"], div[data-testid="stButton"] button[data-testid="stBaseButton-primary"] {
+  background-image: linear-gradient(100deg, #1D4ED8, #0D9488); background-color: #1D4ED8; color: #fff; border: none;
   box-shadow: 0 14px 28px -14px rgba(29,78,216,.9);}
-.stButton > button[kind="primary"]:hover, .stButton button[data-testid="stBaseButton-primary"]:hover {
+div[data-testid="stButton"] button[kind="primary"]:hover, div[data-testid="stButton"] button[data-testid="stBaseButton-primary"]:hover {
   transform: translateY(-2px); color: #fff; box-shadow: 0 18px 32px -14px rgba(13,148,136,.9);}
 
-/* ---------- results ---------- */
-.section-title {font-size: 1.25rem; font-weight: 800; margin: 2.2rem 0 1rem; letter-spacing: -0.01em; display: flex; align-items: center; gap: .6rem;}
+.section-title {font-size: 1.3rem; font-weight: 800; margin: 2.4rem 0 .3rem; letter-spacing: -0.01em; display: flex; align-items: center; gap: .6rem;}
 .section-title::before {content: ""; width: 5px; height: 1.3rem; border-radius: 4px; background: linear-gradient(180deg, #1D4ED8, #0D9488);}
-.stamp {display: inline-block; padding: .35rem .85rem; border-radius: 99px; font-size: .88rem; font-weight: 700; margin: -.4rem 0 .9rem;
-  background: rgba(37,99,235,.12); border: 1px solid rgba(37,99,235,.4);}
-.cmp {margin: 1rem 0 0; padding: .9rem 1.1rem; border-radius: 14px; border: 1px solid rgba(128,128,128,.25); background: rgba(128,128,128,.06);
-  line-height: 1.6; font-size: .93rem;}
-.legend {display: flex; gap: .5rem; flex-wrap: wrap; margin: -.3rem 0 .6rem; font-size: .82rem; font-weight: 700;}
-.legend span {padding: .25rem .7rem; border-radius: 99px; color: var(--c); border: 1px solid var(--c); background: rgba(128,128,128,.1);}
-.scorenote {font-size: .88rem; opacity: .8; margin: 0 0 1rem; line-height: 1.5;}
-.rgrid {display: grid; grid-template-columns: repeat(auto-fit, minmax(270px, 1fr)); gap: 1rem;}
-.rcard {position: relative; overflow: hidden; padding: 1.4rem 1.2rem 1.2rem; border-radius: 20px; border: 1px solid rgba(128,128,128,.25);
+.section-sub {margin: 0 0 1rem; opacity: .72; font-size: .92rem; line-height: 1.5;}
+.overall {display: flex; align-items: center; gap: 1rem; padding: 1.3rem 1.4rem; border-radius: 20px; border-left: 8px solid var(--c);
+  background: rgba(128,128,128,.12); background: color-mix(in srgb, var(--c) 15%, transparent);}
+.overall .big {font-size: 2.3rem; line-height: 1;}
+.overall h3 {margin: 0; padding: 0; font-size: 1.35rem; font-weight: 800; line-height: 1.25;}
+.overall p {margin: .3rem 0 0; opacity: .85; line-height: 1.5;}
+.assume {margin-top: .8rem; padding: .7rem 1rem; border-radius: 12px; font-size: .88rem; line-height: 1.5;
+  border: 1px dashed rgba(217,119,6,.6); background: rgba(217,119,6,.10);}
+.alert {margin-top: .8rem; padding: .7rem 1rem; border-radius: 12px; font-size: .9rem; line-height: 1.5; font-weight: 700;
+  border: 1px solid rgba(220,38,38,.5); background: rgba(220,38,38,.12);}
+.rgrid {display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 1rem;}
+.rcard {position: relative; overflow: hidden; padding: 1.5rem 1.3rem 1.3rem; border-radius: 22px; border: 1px solid rgba(128,128,128,.25);
+  --g1: #2563EB; --g2: #06B6D4;
   background: linear-gradient(160deg, color-mix(in srgb, var(--g1) 11%, transparent), color-mix(in srgb, var(--g2) 6%, transparent));
   box-shadow: 0 16px 34px -24px var(--g1);}
 .rcard::before {content: ""; position: absolute; left: 0; right: 0; top: 0; height: 6px; background: linear-gradient(90deg, var(--g1), var(--g2));}
-.rcard.d {--g1: #2563EB; --g2: #06B6D4;}
-.rcard.h {--g1: #E11D48; --g2: #F97316;}
 .rhead {display: flex; align-items: center; gap: .7rem; margin-bottom: 1rem;}
 .ico {display: inline-grid; place-items: center; width: 2.3rem; height: 2.3rem; border-radius: 12px; font-size: 1.1rem;
-  background: linear-gradient(135deg, var(--g1), var(--g2));}
+  background: linear-gradient(135deg, #2563EB, #06B6D4);}
 .rtitle {font-weight: 800; font-size: 1.08rem; line-height: 1.1;}
-.rsub {font-size: .85rem; opacity: .75; margin-top: .15rem;}
-.pill {margin-left: auto; padding: .28rem .75rem; border-radius: 99px; font-size: .8rem; font-weight: 800; color: var(--c);
+.rsub {font-size: .8rem; opacity: .65; margin-top: .15rem;}
+.pill {margin-left: auto; padding: .28rem .75rem; border-radius: 99px; font-size: .78rem; font-weight: 800; color: var(--c);
   background: rgba(128,128,128,.15); background: color-mix(in srgb, var(--c) 16%, transparent);
   border: 1px solid color-mix(in srgb, var(--c) 45%, transparent);}
-.ring {position: relative; width: 150px; height: 150px; margin: .2rem auto .7rem;}
+.ring {position: relative; width: 156px; height: 156px; margin: .2rem auto .7rem;}
 .ring::before {content: ""; position: absolute; inset: 0; border-radius: 50%;
   background: conic-gradient(var(--c) calc(var(--p) * 1%), rgba(128,128,128,.25) 0);
   -webkit-mask: radial-gradient(farthest-side, transparent calc(100% - 15px), #000 calc(100% - 14px));
   mask: radial-gradient(farthest-side, transparent calc(100% - 15px), #000 calc(100% - 14px));}
 .ringtxt {position: absolute; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center;}
-.ringtxt b {font-size: 2.05rem; font-weight: 800; line-height: 1;}
-.ringtxt span {font-size: .85rem; font-weight: 700; margin-top: .25rem; opacity: .8;}
-.scale {position: relative; height: 10px; border-radius: 99px; margin: .9rem .4rem .35rem;
-  background: linear-gradient(90deg, #16A34A 0 33%, #D97706 33% 66%, #DC2626 66% 100%);}
-.scale span {width: 16px; height: 16px; border-width: 3px;}
-.scalel {display: flex; justify-content: space-between; margin: 0 .4rem .8rem;}
-.scalel small {font-size: .75rem; opacity: .8; font-weight: 700;}
-.rtext {text-align: center; font-size: .92rem; line-height: 1.45; opacity: .9;}
-.border {margin-top: .6rem; text-align: center; font-size: .84rem; font-weight: 700; color: #D97706;}
-
-/* ---------- health tips ---------- */
-.alert {margin: 0 0 1rem; padding: .8rem 1rem; border-radius: 14px; border-left: 6px solid #DC2626; line-height: 1.5; font-size: .93rem;
-  background: rgba(220,38,38,.1);}
-.tgrid {display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 1rem;}
-.tcard {position: relative; overflow: hidden; padding: 1.3rem 1.2rem 1.1rem; border-radius: 20px; border: 1px solid rgba(128,128,128,.25);
-  background: rgba(128,128,128,.06);}
-.tcard::before {content: ""; position: absolute; left: 0; right: 0; top: 0; height: 6px; background: var(--c);}
-.thead {display: flex; align-items: center; gap: .6rem; margin-bottom: .9rem;}
-.thead b {font-size: 1.02rem; font-weight: 800;}
-.titem {display: flex; gap: .7rem; align-items: flex-start; padding: .55rem .7rem; margin: .4rem 0; border-radius: 12px;
-  background: rgba(128,128,128,.09); line-height: 1.45; font-size: .93rem;}
-.titem .te {font-size: 1.15rem; line-height: 1.3;}
-.titem.extra {border-left: 4px solid var(--c);}
-
-/* ---------- food guide ---------- */
-.plate {display: flex; gap: 1.4rem; align-items: center; flex-wrap: wrap; padding: 1.1rem 1.3rem; border-radius: 20px;
-  border: 1px solid rgba(128,128,128,.25); background: rgba(128,128,128,.06); margin-bottom: .8rem;}
-.pie {width: 120px; height: 120px; border-radius: 50%; flex: none;
-  background: conic-gradient(#16A34A 0 50%, #D97706 50% 75%, #2563EB 75% 100%);}
-.plate ul {list-style: none; margin: 0; padding: 0; line-height: 1.9; font-size: .95rem;}
-.plate li::before {content: ""; display: inline-block; width: 12px; height: 12px; border-radius: 3px; margin-right: .6rem; background: var(--c);}
-.fgroup {margin: .6rem 0; padding: .8rem 1rem; border-radius: 14px; border-left: 5px solid var(--c);
-  background: rgba(128,128,128,.08);}
-.fgroup h5 {margin: 0 0 .4rem; font-size: .98rem; font-weight: 800; color: var(--c);}
-.fgroup ul {margin: 0; padding-left: 1.2rem; line-height: 1.6; font-size: .93rem;}
-.fnote {font-size: .88rem; opacity: .8; margin-top: .7rem; line-height: 1.5;}
+.ringtxt b {font-size: 2.2rem; font-weight: 800; line-height: 1;}
+.ringtxt span {font-size: .78rem; font-weight: 700; margin-top: .25rem; opacity: .7;}
+.lvl {text-align: center; font-size: 1.5rem; font-weight: 800; color: var(--c); margin-bottom: .2rem;}
+.rtext {text-align: center; font-size: .92rem; line-height: 1.45; opacity: .85; font-weight: 600;}
+.tip {margin-top: .9rem; padding: .7rem .9rem; border-radius: 12px; font-size: .88rem; line-height: 1.45; background: rgba(128,128,128,.12);}
+.tip b {display: block; font-size: .78rem; opacity: .7; margin-bottom: .15rem;}
 
 .panel {border: 1px solid rgba(37,99,235,.28); border-radius: 20px; padding: 1.25rem 1.35rem;
   background: linear-gradient(135deg, rgba(37,99,235,.09), rgba(13,148,136,.09));}
 .panel p {margin: 0 0 1rem; line-height: 1.55;}
-.barrow {display: grid; grid-template-columns: 9.5rem 1fr 3rem; align-items: center; gap: .7rem; margin: .55rem 0;}
-.barl {font-size: .92rem; opacity: .95; font-weight: 600;}
+.barrow {display: grid; grid-template-columns: 10rem 1fr 3.2rem; align-items: center; gap: .7rem; margin: .55rem 0;}
+.barl {font-size: .9rem; opacity: .9; font-weight: 600;}
 .barv {font-weight: 800; text-align: right; font-size: .92rem;}
 .track {height: 12px; border-radius: 99px; background: rgba(128,128,128,.25); overflow: hidden;}
 .fill {height: 100%; border-radius: 99px;}
-.fgrid {display: grid; grid-template-columns: repeat(auto-fit, minmax(270px, 1fr)); gap: 1rem;}
-.fcard {border: 1px solid rgba(128,128,128,.25); border-radius: 18px; padding: 1.1rem 1.2rem; background: rgba(128,128,128,.06);}
-.fcard h4 {margin: 0 0 .6rem; font-size: .98rem; font-weight: 800;}
-.fcard .fill {background: linear-gradient(90deg, var(--g1), var(--g2));}
-.fcard.d {--g1: #2563EB; --g2: #06B6D4;}
-.fcard.h {--g1: #E11D48; --g2: #F97316;}
-@media (max-width: 520px) {.barrow {grid-template-columns: 1fr 3rem;} .barl {grid-column: 1 / -1;} .hero h1 {font-size: 1.9rem;}}
+.fcard {border: 1px solid rgba(128,128,128,.25); border-radius: 22px; padding: 1.3rem 1.3rem; background: rgba(128,128,128,.06);}
+.fcard h4 {margin: 0 0 .2rem; font-size: 1.05rem; font-weight: 800;}
+.fcard small {display: block; opacity: .65; margin-bottom: .6rem;}
+.fcard.static .fill {background: linear-gradient(90deg, #2563EB, #06B6D4);}
+.sens {width: 100%; border-collapse: collapse; margin-top: .4rem; font-size: .92rem;}
+.sens th, .sens td {padding: .55rem .7rem; text-align: left; border-bottom: 1px solid rgba(128,128,128,.25);}
+.sens th {font-size: .78rem; opacity: .7;}
+@media (max-width: 560px) {.barrow {grid-template-columns: 1fr 3.2rem;} .barl {grid-column: 1 / -1;}}
 
-.note {margin-top: 1.3rem; font-size: .88rem; opacity: .8; line-height: 1.5;}
-.foot {margin-top: 2.2rem; padding-top: 1rem; border-top: 1px solid rgba(128,128,128,.25); text-align: center; font-size: .85rem; opacity: .75;}
+.habits {display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: .8rem; margin-top: .9rem;}
+.habit {padding: .8rem 1rem; border-radius: 14px; background: rgba(128,128,128,.10); font-size: .9rem; line-height: 1.45;}
+.habit b {display: block; margin-bottom: .1rem;}
+.focus {display: flex; gap: .8rem; align-items: flex-start; margin: .55rem 0; line-height: 1.5;}
+.focus .e {font-size: 1.4rem; line-height: 1.2;}
+.focus b {display: block;}
+
+.plate {display: flex; align-items: center; gap: 1.4rem; flex-wrap: wrap; padding: 1.1rem 1.3rem; margin-bottom: 1rem; border-radius: 18px;
+  border: 1px solid rgba(128,128,128,.25); background: rgba(128,128,128,.07);}
+.disc {flex: none; width: 118px; height: 118px; border-radius: 50%; box-shadow: 0 0 0 6px rgba(128,128,128,.3);
+  background: conic-gradient(#16A34A 0 50%, #F59E0B 0 75%, #2563EB 0 100%);}
+.plate ul {list-style: none; margin: 0; padding: 0; flex: 1 1 220px;}
+.plate li {display: flex; align-items: center; gap: .6rem; margin: .35rem 0; font-size: .93rem; line-height: 1.35; font-weight: 600;}
+.plate li i {flex: none; width: 14px; height: 14px; border-radius: 4px;}
+.plate h4 {margin: 0 0 .4rem; font-size: 1rem; font-weight: 800;}
+
+.mgrid {display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: .8rem; margin: .4rem 0 1rem;}
+.mtile {padding: 1rem 1rem; border-radius: 16px; border: 1px solid rgba(128,128,128,.25); background: rgba(128,128,128,.07); text-align: center;}
+.mtile b {display: block; font-size: 1.7rem; font-weight: 800; line-height: 1.1;
+  background: linear-gradient(100deg, #2563EB, #0D9488); -webkit-background-clip: text; background-clip: text; color: transparent;}
+.mtile span {font-size: .82rem; opacity: .75; font-weight: 600;}
+.cm {border-collapse: collapse; margin: .4rem 0 1rem; font-size: .92rem;}
+.cm th, .cm td {padding: .6rem 1rem; border: 1px solid rgba(128,128,128,.3); text-align: center;}
+.cm th {font-size: .8rem; opacity: .75;}
+.cm td b {font-size: 1.2rem;}
+
+.note {margin-top: 1.3rem; font-size: .84rem; opacity: .68; line-height: 1.5;}
+.foot {margin-top: 2.4rem; padding-top: 1.1rem; border-top: 1px solid rgba(128,128,128,.25); text-align: center; font-size: .8rem; opacity: .65; line-height: 1.6;}
 </style>
 """
-
 st.markdown(CSS, unsafe_allow_html=True)
 
 
-@st.cache_resource
-def load_models():
-    return {d: joblib.load(f"models/{d}_rf.joblib") for d in ("diabetes", "heart")}
+# ------------------------------------------------------------------ model (trained when the app starts)
+@st.cache_resource(show_spinner="Training the Random Forest model...")
+def load_model():
+    path = Path(__file__).parent / "diabetes.csv"
+    if not path.exists():
+        path = Path("diabetes.csv")
+    if not path.exists():
+        return "missing"
+    df = pd.read_csv(path)
+    if df.shape[1] != 9:
+        return "columns"
+    df.columns = COLUMNS  # assigned by position
+    df = df.apply(pd.to_numeric, errors="coerce").dropna(subset=["Outcome"])
+    for c in ZERO_MEANS_MISSING:
+        df[c] = df[c].replace(0, np.nan)  # 0 is not a real reading, treat as missing
+    X, y = df.drop(columns="Outcome"), df["Outcome"].astype(int)
+    Xtr, Xte, ytr, yte = train_test_split(X, y, test_size=0.2, stratify=y, random_state=42)
+
+    def new_model():
+        return make_pipeline(SimpleImputer(strategy="median"), RandomForestClassifier(n_estimators=200, random_state=42))
+
+    model = new_model().fit(Xtr, ytr)
+    pred, prob = model.predict(Xte), model.predict_proba(Xte)[:, 1]
+    tn, fp, fn, tp = confusion_matrix(yte, pred).ravel()
+    cv = cross_val_score(new_model(), X, y, cv=StratifiedKFold(5, shuffle=True, random_state=42), scoring="accuracy").mean()
+    return {
+        "model": model,
+        "medians": pd.Series(model[0].statistics_, index=X.columns),
+        "importance": pd.Series(model[-1].feature_importances_, index=X.columns).sort_values(ascending=False),
+        "metrics": {"Accuracy": accuracy_score(yte, pred), "Precision": precision_score(yte, pred),
+                    "Recall": recall_score(yte, pred), "F1 score": f1_score(yte, pred),
+                    "ROC-AUC": roc_auc_score(yte, prob), "5-fold CV accuracy": cv},
+        "cm": (tn, fp, fn, tp), "n": len(df), "n_test": len(yte), "pos_rate": float(y.mean()),
+    }
 
 
-models = load_models()
+M = load_model()
+if isinstance(M, str):
+    msg = ("Add your <b>diabetes.csv</b> file to the same folder as app.py in your GitHub repository, then reload this page."
+           if M == "missing" else "diabetes.csv should have 9 columns: Pregnancies, Glucose, BloodPressure, SkinThickness, "
+                                  "Insulin, BMI, DiabetesPedigreeFunction, Age, Outcome.")
+    st.markdown(f'<div class="notice"><b>Dataset problem</b>{msg}</div>', unsafe_allow_html=True)
+    st.stop()
+MODEL, MED = M["model"], M["medians"]
 
 
+# ------------------------------------------------------------------ helpers
 def level(p):
-    return "Low" if p < CUT_LOW else "Moderate" if p < CUT_HIGH else "High"
-
-
-def borderline(p):
-    """Short note when a score sits close to a cut-off."""
-    if abs(p - CUT_LOW) <= 0.05:
-        return "Borderline: close to the Moderate range"
-    if abs(p - CUT_HIGH) <= 0.05:
-        return "Borderline: close to the High range"
-    return ""
-
-
-def bmi_category(bmi):
-    if bmi < 18.5:
-        return "Underweight", "#0EA5E9"
-    if bmi < 25:
-        return "Normal", "#16A34A"
-    if bmi < 30:
-        return "Overweight", "#D97706"
-    return "Obese", "#DC2626"
-
-
-def bmi_card(bmi):
-    cat, col = bmi_category(bmi)
-    pos = min(max((bmi - 15) / (40 - 15), 0), 1) * 100
-    return (f'<div class="bmi"><div class="bmitop"><div><div class="bmil">Your BMI (calculated)</div>'
-            f'<div class="bmiv">{bmi:.1f}</div></div><span class="pill" style="--c:{col}">{cat}</span></div>'
-            f'<div class="bmibar"><span style="left:{pos:.1f}%"></span></div>'
-            f'<div class="bmiscale"><small>Underweight &lt; 18.5</small><small>Normal 18.5-24.9</small>'
-            f'<small>Overweight 25-29.9</small><small>Obese 30+</small></div></div>')
-
-
-def section_header(icon, title, sub):
-    return (f'<div class="step"><span class="stepno">{icon}</span><div><div class="steptitle">{title}</div>'
-            f'<div class="stepsub">{sub}</div></div></div>')
-
-
-def result_card(title, p, kind, icon):
-    pct, lvl = round(p * 100), level(p)
-    note = borderline(p)
-    note_html = f'<div class="border">{note}</div>' if note else ""
-    return (f'<div class="rcard {kind}"><div class="rhead"><span class="ico">{icon}</span>'
-            f'<div><div class="rtitle">{title}</div><div class="rsub">Risk score</div></div>'
-            f'<span class="pill" style="--c:{COLORS[lvl]}">{lvl}</span></div>'
-            f'<div class="ring" style="--p:{pct};--c:{COLORS[lvl]}"><div class="ringtxt"><b>{pct}%</b><span>{lvl} risk</span></div></div>'
-            f'<div class="scale"><span style="left:{min(max(pct, 2), 98)}%"></span></div>'
-            f'<div class="scalel"><small>Low</small><small>Moderate</small><small>High</small></div>'
-            f'<div class="rtext">{MEANING[lvl]}</div>{note_html}</div>')
-
-
-def tips_card(title, icon, p, base_tips, extra_tips):
-    lvl = level(p)
-    col = COLORS[lvl]
-    items = "".join(f'<div class="titem extra" style="--c:{col}"><span class="te">{e}</span><span>{t}</span></div>'
-                    for e, t in extra_tips)
-    items += "".join(f'<div class="titem"><span class="te">{e}</span><span>{t}</span></div>' for e, t in base_tips)
-    return (f'<div class="tcard" style="--c:{col}"><div class="thead"><span>{icon}</span><b>{title}</b>'
-            f'<span class="pill" style="--c:{col}">{lvl} risk</span></div>{items}</div>')
-
-
-def food_html(disease, vegetarian):
-    out = ""
-    for group, items in FOOD[disease].items():
-        lines = []
-        for text, veg in items:
-            if vegetarian:
-                if veg is None:
-                    continue
-                text = text if veg == SAME else veg
-            lines.append(f"<li>{text}</li>")
-        out += f'<div class="fgroup" style="--c:{FOOD_COLORS[group]}"><h5>{group}</h5><ul>{"".join(lines)}</ul></div>'
-    return out
+    return "Low" if p < 0.33 else "Moderate" if p < 0.66 else "High"
 
 
 def quote_html(text, author):
     return f'<div class="quote">&ldquo;{text}&rdquo;<small>{author}</small></div>'
 
 
-def bar(label, p):
-    pct = round(p * 100)
-    return (f'<div class="barrow"><span class="barl">{label}</span>'
-            f'<div class="track"><div class="fill" style="width:{pct}%;background:{COLORS[level(p)]}"></div></div>'
-            f'<span class="barv">{pct}%</span></div>')
+def result_card(p):
+    score, lvl = round(p * 100), level(p)
+    return (f'<div class="rcard"><div class="rhead"><span class="ico">🩸</span>'
+            f'<div><div class="rtitle">Diabetes</div><div class="rsub">Model score</div></div>'
+            f'<span class="pill" style="--c:{COLORS[lvl]}">{lvl}</span></div>'
+            f'<div class="ring" style="--p:{score};--c:{COLORS[lvl]}"><div class="ringtxt"><b>{score}</b><span>out of 100</span></div></div>'
+            f'<div class="lvl" style="--c:{COLORS[lvl]}">{lvl} risk category</div>'
+            f'<div class="rtext">{MEANING[lvl]}</div>'
+            f'<div class="tip"><b>What you can do</b>{TIPS[lvl]}</div></div>')
 
 
-def factors_card(title, kind, model, top=5):
-    imp = pd.Series(model.feature_importances_, index=model.feature_names_in_).sort_values(ascending=False).head(top)
+def predict(vals):
+    return float(MODEL.predict_proba(pd.DataFrame([vals], columns=COLUMNS[:-1]))[0, 1])
+
+
+def drivers(vals, base, top=5):
+    """Swap each of your values for the typical (median) value and see how the model score changes."""
+    out = []
+    for k in COLUMNS[:-1]:
+        if pd.isna(vals[k]):
+            continue
+        alt = dict(vals)
+        alt[k] = float(MED[k])
+        out.append((k, base - predict(alt)))
+    out = [x for x in sorted(out, key=lambda x: -abs(x[1])) if abs(x[1]) >= 0.005]
+    return out[:top]
+
+
+def drivers_card(items):
+    if not items:
+        body = '<div class="rsub">No single value stood out compared with a typical person in the data.</div>'
+    else:
+        mx = max(abs(d) for _, d in items) or 1
+        body = "".join(
+            f'<div class="barrow"><span class="barl">{"▲" if d > 0 else "▼"} {FRIENDLY[k]}</span>'
+            f'<div class="track"><div class="fill" style="width:{abs(d) / mx * 100:.0f}%;background:{"#DC2626" if d > 0 else "#16A34A"}"></div></div>'
+            f'<span class="barv">{d * 100:+.0f}</span></div>' for k, d in items)
+    return ('<div class="fcard"><h4>What influenced your score?</h4>'
+            '<small>▲ raises your score · ▼ lowers it (points out of 100), compared with a typical person in the data</small>'
+            f'{body}</div>')
+
+
+def importance_card(top=8):
+    imp = M["importance"].head(top)
     mx = imp.max() or 1
     rows = "".join(
-        f'<div class="barrow"><span class="barl">{FRIENDLY.get(n, n.replace("_", " ").capitalize())}</span>'
+        f'<div class="barrow"><span class="barl">{FRIENDLY[n]}</span>'
         f'<div class="track"><div class="fill" style="width:{v / mx * 100:.0f}%"></div></div>'
         f'<span class="barv">{v * 100:.0f}%</span></div>' for n, v in imp.items())
-    return f'<div class="fcard {kind}"><h4>{title}</h4>{rows}</div>'
+    return f'<div class="fcard static"><h4>Inputs the model relies on most</h4><small>Across all training data, not for you alone</small>{rows}</div>'
 
 
-# =====================================================================  PAGE  =====
+def plate_html():
+    return ('<div class="plate"><div class="disc"></div><ul><h4>The healthy plate</h4>'
+            '<li><i style="background:#16A34A"></i>Half: vegetables and salad</li>'
+            '<li><i style="background:#F59E0B"></i>One quarter: whole grains, millets or roti</li>'
+            '<li><i style="background:#2563EB"></i>One quarter: dal, egg, fish or lean meat</li></ul></div>')
+
+
+def bmi_category(v):
+    return "Underweight" if v < 18.5 else "Normal" if v < 25 else "Overweight" if v < 30 else "Obese range"
+
+
+def compute_dpf(rels):
+    """Diabetes pedigree function (Smith et al., 1988): relatives with diabetes raise the score, relatives without lower it."""
+    num = 20 + sum(RELATIVES[r["rel"]] * max(88 - r["age"], 0) for r in rels if r["dm"])
+    den = 50 + sum(RELATIVES[r["rel"]] * max(r["age"] - 14, 0) for r in rels if not r["dm"])
+    return round(num / den, 3)
+
+
+def remove_last_relative():
+    if st.session_state.get("relatives"):
+        st.session_state["relatives"].pop()
+
+
+def clear_relatives():
+    st.session_state["relatives"] = []
+
+
+def with_unknown(col, label, mn, mx, typical, key, help=None, unknown_default=False):
+    """Number input plus an 'I don't know' checkbox. Unknown values become missing and are filled with the training median."""
+    box = col.container()
+    unknown = col.checkbox("I don't know", value=unknown_default, key=f"{key}_unk")
+    val = box.number_input(label, mn, mx, typical, help=help, disabled=unknown, key=key)
+    return (np.nan, True) if unknown else (val, False)
+
+
+def reset_form():
+    st.session_state.clear()
+
+
+# ------------------------------------------------------------------ header
 st.markdown(
-    '<div class="hero"><span class="tag"><i></i>Free health risk check</span>'
-    '<h1>Check your health risk in 2 minutes</h1>'
-    '<p>Answer a few simple questions to get an easy-to-read estimate of your diabetes and heart disease risk.</p>'
+    '<div class="brand"><span class="logo">🛡️</span><div><b>HealthGuard AI</b><small>Diabetes Risk Prediction</small></div>'
+    '<span class="bt">AI-powered screening</span></div>'
+    '<div class="hero"><span class="tag"><i></i>AI-powered health screening</span>'
+    '<h1>Understand your diabetes risk. Act early.</h1>'
+    '<p>Answer a few health questions to explore your estimated diabetes risk, with a clear explanation of what influenced it.</p>'
     '<svg class="ecg" viewBox="0 0 420 44" preserveAspectRatio="none"><path d="M0 24 H70 L82 24 L92 8 L104 40 '
     'L114 24 H190 L202 24 L212 6 L224 42 L234 24 H310 L322 24 L332 10 L344 38 L354 24 H420"/></svg></div>'
-    '<div class="chips"><span class="chip c4">🔒 Your answers are not saved</span><span class="chip c2">🩸 Diabetes</span>'
-    '<span class="chip c3">❤️ Heart disease</span></div>'
-    '<div class="steps"><div class="stp"><b>1</b>Enter your details</div><div class="stp"><b>2</b>Tap Check my risk</div>'
-    '<div class="stp"><b>3</b>Read your results</div></div>',
+    '<div class="chips"><span class="chip c1">🩸 Diabetes screening</span><span class="chip c2">🌲 Random Forest model</span>'
+    '<span class="chip c3">Educational tool · Not a medical diagnosis</span></div>',
     unsafe_allow_html=True,
 )
-
 if "quote" not in st.session_state:
     st.session_state["quote"] = random.choice(QUOTES)
 st.markdown(quote_html(*st.session_state["quote"]), unsafe_allow_html=True)
 st.write("")
 
-# ---------------- About you ----------------
-with st.container(border=True):
-    st.markdown(section_header("👤", "About you", "Basic details and body measurements"), unsafe_allow_html=True)
-    c1, c2 = st.columns(2)
-    age = c1.number_input("Age (years)", 1, 100, 40)
-    sex = c2.selectbox("Sex", ["Male", "Female"])
-    h_col, w_col = st.columns(2)
-    height = h_col.number_input("Height (cm)", 100.0, 250.0, 170.0, step=0.5)
-    weight = w_col.number_input("Weight (kg)", 20.0, 300.0, 70.0, step=0.5)
-    bmi_raw = weight / ((height / 100) ** 2)
-    bmi = round(min(max(bmi_raw, 10.0), 70.0), 1)   # keep inside the range the model was trained on
-    st.markdown(bmi_card(bmi_raw), unsafe_allow_html=True)
-    if bmi_raw != bmi:
-        st.warning("This BMI is outside the usual range (10 to 70). Please re-check your height and weight.")
-    preg = 0
-    if sex == "Female":
-        preg = st.number_input("Number of pregnancies", 0, 20, 0, help="Enter 0 if none.")
+tab_basic, tab_more, tab_fam, tab_food, tab_model = st.tabs(
+    ["①  Health details", "②  Optional measurements", "③  Family history", "④  Nutrition guide", "⑤  Model performance"])
+assumed = []
 
-# ---------------- Health numbers ----------------
-with st.container(border=True):
-    st.markdown(section_header("🩺", "Your health numbers", "Use your latest check-up values. Not sure? Keep the default."),
+# ------------------------------------------------------------------ inputs
+with tab_basic:
+    st.markdown('<div class="notice"><b>Who is this model for?</b>It was trained on health records of women aged 21 and '
+                'older (the Pima Indians Diabetes data format). Results for other groups may be less reliable.</div>',
                 unsafe_allow_html=True)
-    b1, b2 = st.columns(2)
-    sbp = b1.number_input("Blood pressure: top number (mmHg)", 80, 220, 120,
-                          help="Systolic pressure, for example the 120 in 120/80.")
-    dbp = b2.number_input("Blood pressure: bottom number (mmHg)", 30, 140, 80,
-                          help="Diastolic pressure, for example the 80 in 120/80.")
-    g1, g2 = st.columns(2)
-    glucose = g1.number_input("Fasting blood sugar (mg/dL)", 40, 400, 95,
-                              help="Blood sugar after 8+ hours without food. Normal is under 100 mg/dL.")
-    chol = g2.number_input("Total cholesterol (mg/dL)", 100, 600, 190,
-                           help="From a lipid profile blood test. Healthy is under 200 mg/dL.")
-    cp_label = st.selectbox("Do you have chest pain or discomfort?", list(CHEST_PAIN), index=0)
-    cp = CHEST_PAIN[cp_label]
-    e1, e2 = st.columns(2)
-    exang = e1.selectbox("Chest pain or breathlessness during exercise?", ["No", "Yes"])
-    family = e2.selectbox("Family history of diabetes", list(FAMILY))
-    dpf = FAMILY[family]
+    st.markdown('<div class="sec">👤 Personal information</div>', unsafe_allow_html=True)
+    c1, c2, c3, c4 = st.columns(4)
+    age = c1.number_input("Age (years, 21 or older)", 21, 90, 30)
+    preg = c2.number_input("Number of pregnancies", 0, 20, 0, help="Enter 0 if not applicable.")
+    height = c3.number_input("Height (cm)", 120, 220, 160)
+    weight = c4.number_input("Weight (kg)", 30, 200, 60)
+    bmi = round(weight / ((height / 100) ** 2), 1)
+    st.markdown(f'<div class="bmi">Your BMI: {bmi} · {bmi_category(bmi)}</div>', unsafe_allow_html=True)
 
-# ---------------- Optional lab / ECG report ----------------
-HR_DEFAULT = max(60, min(220, int(0.9 * (220 - age))))
-skin, insulin = 25, 80
-ecg, hr, oldpeak, slope, ca, thal = 0, HR_DEFAULT, 0.0, 1, 0, 3
-with st.expander("📄 Optional: I have lab or ECG reports"):
-    st.markdown('<div class="hint">These come from lab or hospital reports. If you do not have them, leave the typical '
-                'healthy values already filled in. Your result will be a little less precise.</div>', unsafe_allow_html=True)
-    st.markdown('<div class="subhead">🩸 Diabetes tests</div>', unsafe_allow_html=True)
-    d1, d2 = st.columns(2)
-    insulin = d1.number_input("Insulin level (mu U/ml)", 0, 900, 80)
-    skin = d2.number_input("Skin fold thickness (mm)", 5, 100, 25)
-    st.markdown('<div class="subhead">❤️ Heart tests</div>', unsafe_allow_html=True)
-    h1, h2 = st.columns(2)
-    ecg = h1.selectbox("Resting ECG result", list(ECG_LABELS), format_func=lambda k: ECG_LABELS[k])
-    hr = h2.number_input("Highest heart rate in exercise test (bpm)", 60, 220, HR_DEFAULT)
-    slope = h1.selectbox("Exercise ECG slope", list(SLOPE_LABELS), format_func=lambda k: SLOPE_LABELS[k])
-    oldpeak = h2.number_input("ST depression (oldpeak)", 0.0, 7.0, 0.0, step=0.1,
-                              help="Drop in the ECG trace during exercise, from the report. 0 is typical for a healthy heart.")
-    ca = h1.selectbox("Blocked vessels seen on scan (0 to 3)", [0, 1, 2, 3])
-    thal = h2.selectbox("Thalassemia blood test", list(THAL_LABELS), format_func=lambda k: THAL_LABELS[k])
+    st.markdown('<div class="sec">🩺 Health measurements</div>', unsafe_allow_html=True)
+    c1, c2 = st.columns(2)
+    glucose, a1 = with_unknown(
+        c1, "Blood glucose 2 hours after a glucose drink (mg/dL)", 40, 300, int(round(MED["Glucose"])), "glucose",
+        help="From an oral glucose tolerance test (OGTT). This is not the same as a fasting or random sugar reading.")
+    dbp, a2 = with_unknown(
+        c2, "Blood pressure: bottom number (mmHg)", 30, 140, int(round(MED["BloodPressure"])), "dbp",
+        help="Diastolic pressure, the lower number in a reading such as 120/80.")
+    for flag, name in ((a1, "blood glucose"), (a2, "blood pressure")):
+        if flag:
+            assumed.append(name)
 
-used_typical = (insulin == 80 and skin == 25 and ecg == 0 and hr == HR_DEFAULT and slope == 1
-                and oldpeak == 0.0 and ca == 0 and thal == 3)
+with tab_more:
+    st.markdown('<div class="notice"><b>Optional measurements</b>These come from lab tests or a clinic visit. Most people '
+                'do not know them, so "I don\'t know" is ticked by default. Unknown values are replaced with the typical '
+                'value from the training data, and your results are clearly marked.</div>', unsafe_allow_html=True)
+    a, b = st.columns(2)
+    insulin, a3 = with_unknown(a, "Insulin, 2 hours after glucose drink (mu U/ml)", 0, 900, int(round(MED["Insulin"])),
+                               "insulin", help="Serum insulin from a lab test.", unknown_default=True)
+    skin, a4 = with_unknown(b, "Triceps skin fold thickness (mm)", 5, 100, int(round(MED["SkinThickness"])),
+                            "skin", help="Measured with a skin-fold caliper at the back of the upper arm.",
+                            unknown_default=True)
+    for flag, name in ((a3, "insulin level"), (a4, "skin fold thickness")):
+        if flag:
+            assumed.append(name)
 
-IST = timezone(timedelta(hours=5, minutes=30))
-inputs_sig = (age, sex, height, weight, preg, sbp, dbp, glucose, chol, cp_label, exang, family,
-              skin, insulin, ecg, hr, oldpeak, slope, ca, thal)
+with tab_fam:
+    st.markdown('<div class="notice"><b>Family history of diabetes</b>Diabetes in blood relatives is one of the inputs '
+                'the model uses. Add the relatives you know about, <b>including relatives who do not have diabetes</b>. '
+                'If you skip this tab, a typical value is used and your result is marked.</div>', unsafe_allow_html=True)
+    with st.form("relative_form", clear_on_submit=True):
+        c1, c2, c3 = st.columns([2, 1.3, 1.3])
+        rel = c1.selectbox("Relative", list(RELATIVES))
+        has_dm = c2.selectbox("Has or had diabetes?", ["No", "Yes"])
+        rage = c3.number_input("Age", 1, 100, 50,
+                               help="If they have diabetes: the age when it was diagnosed. If not: their current age.")
+        added = st.form_submit_button("Add relative")
+    if added:
+        st.session_state.setdefault("relatives", []).append({"rel": rel, "dm": has_dm == "Yes", "age": int(rage)})
+    rels = st.session_state.get("relatives", [])
+    if rels:
+        rows = "".join(
+            f'<tr><td>{r["rel"]}</td><td>{"Diabetes, diagnosed at " + str(r["age"]) if r["dm"] else "No diabetes, age " + str(r["age"])}</td>'
+            f'<td>{RELATIVES[r["rel"]] * 100:g}%</td></tr>' for r in rels)
+        st.markdown('<table class="sens"><tr><th>Relative</th><th>Details</th><th>Genes shared</th></tr>' + rows + '</table>',
+                    unsafe_allow_html=True)
+        r1, r2 = st.columns(2)
+        r1.button("Remove last", on_click=remove_last_relative)
+        r2.button("Clear list", on_click=clear_relatives)
+        dpf = compute_dpf(rels)
+        typ = float(MED["DiabetesPedigreeFunction"])
+        word = "above" if dpf > typ * 1.1 else "below" if dpf < typ * 0.9 else "close to"
+        st.markdown(f'<div class="bmi">Your family history score: {dpf:.2f} · {word} the typical value ({typ:.2f})</div>',
+                    unsafe_allow_html=True)
+    else:
+        dpf = np.nan
+        assumed.append("family history score")
+        st.markdown('<div class="help">No relatives added yet. A typical family history score will be used.</div>',
+                    unsafe_allow_html=True)
+    with st.expander("How is the family history score calculated?"):
+        st.markdown(
+            "It follows the published *diabetes pedigree function* used to build this dataset (Smith et al., 1988):\n\n"
+            "`score = (20 + sum of share × (88 − age at diagnosis) for relatives with diabetes) ÷ "
+            "(50 + sum of share × (age − 14) for relatives without diabetes)`\n\n"
+            "*Share* is the fraction of genes you have in common with the relative: 0.5 for parents and full siblings, "
+            "0.25 for half siblings, grandparents, aunts and uncles, and 0.125 for half aunts or uncles and first cousins. "
+            "Terms below zero count as zero. More affected close relatives raise the score, and healthy older relatives lower it.")
+
+with tab_food:
+    st.markdown('<div class="help">What to eat and what to limit for a healthy blood sugar level. '
+                'This is general guidance, not a personal diet plan.</div>', unsafe_allow_html=True)
+    st.markdown(plate_html(), unsafe_allow_html=True)
+    cols = st.columns(3)
+    for col, (cls, icon, name, items) in zip(cols, FOOD):
+        with col:
+            with st.expander(f"{icon} {name}", expanded=True):
+                st.markdown("\n".join(f"- {i}" for i in items))
+    st.caption("Eat regular meals, watch portion sizes, drink plenty of water and stay active. If you are pregnant, "
+               "have kidney disease or take medicines for diabetes, follow your doctor's or dietitian's advice.")
+
+with tab_model:
+    m = M["metrics"]
+    tn, fp, fn, tp = M["cm"]
+    st.markdown('<div class="help">How well the Random Forest performs on records it has never seen (a held-out 20% test set).</div>',
+                unsafe_allow_html=True)
+    st.markdown('<div class="mgrid">' + "".join(
+        f'<div class="mtile"><b>{v * 100:.0f}%</b><span>{k}</span></div>' for k, v in m.items()) + '</div>',
+        unsafe_allow_html=True)
+    st.markdown('<div class="sec">Confusion matrix (test set)</div>', unsafe_allow_html=True)
+    st.markdown(
+        '<table class="cm"><tr><th></th><th>Predicted: no diabetes</th><th>Predicted: diabetes</th></tr>'
+        f'<tr><th>Actual: no diabetes</th><td><b>{tn}</b></td><td><b>{fp}</b></td></tr>'
+        f'<tr><th>Actual: diabetes</th><td><b>{fn}</b></td><td><b>{tp}</b></td></tr></table>', unsafe_allow_html=True)
+    st.markdown(
+        f'<div class="help"><b>Recall</b> shows how many people who really had diabetes were caught ({tp} of {tp + fn}). '
+        f'<b>Precision</b> shows how many flagged people really had it ({tp} of {tp + fp}). For screening, recall matters '
+        f'because missing a real case is worse than a false alarm.</div>', unsafe_allow_html=True)
+    st.markdown('<div class="sec">About the data and model</div>', unsafe_allow_html=True)
+    st.markdown(
+        f'- **Data:** {M["n"]} records, {M["pos_rate"] * 100:.0f}% with diabetes, 8 input features, {M["n_test"]} used for testing.\n'
+        '- **Cleaning:** zero values in glucose, blood pressure, skin fold, insulin and BMI are treated as missing and '
+        'filled with the training median.\n'
+        '- **Model:** Random Forest with 200 trees, trained on 80% of the data (stratified split, random_state 42).\n'
+        '- **Limits:** small dataset, one population group, and scores are not exact probabilities.')
 
 st.write("")
-if st.button("🔍 Check my risk", type="primary", use_container_width=True):
-    d_row = pd.DataFrame([[preg, glucose, dbp, skin, insulin, bmi, dpf, age]],
-                         columns=["Pregnancies", "Glucose", "BloodPressure", "SkinThickness",
-                                  "Insulin", "BMI", "DiabetesPedigreeFunction", "Age"])
-    p_d = models["diabetes"].predict_proba(d_row)[0, 1]
+go = st.button("Check my diabetes risk", type="primary")
 
-    h_cols = ["age", "sex", "chest_pain_type", "resting_bp", "cholesterol",
-              "fasting_blood_sugar", "resting_ecg", "max_heart_rate", "exercise_angina",
-              "oldpeak", "slope", "num_major_vessels", "thalassemia"]
+# ------------------------------------------------------------------ results
+if go:
+    st.toast("Your results are ready below")
+    vals = {"Pregnancies": float(preg), "Glucose": glucose, "BloodPressure": dbp, "SkinThickness": skin,
+            "Insulin": insulin, "BMI": bmi, "DiabetesPedigreeFunction": dpf, "Age": float(age)}
+    with st.spinner("Analyzing your inputs..."):
+        p = predict(vals)
+        drv = drivers(vals, p)
+        whatif = None
+        if bmi > 24.9:
+            whatif = predict({**vals, "BMI": 24.9})
+    lvl = level(p)
+    icon, head, sub = HEADLINE[lvl]
+    assumed_txt = ", ".join(assumed)
 
-    def heart_prob(fbs_value):
-        row = pd.DataFrame([[age, int(sex == "Male"), cp, sbp, chol, fbs_value, ecg, hr,
-                             int(exang == "Yes"), oldpeak, slope, ca, thal]], columns=h_cols)
-        return models["heart"].predict_proba(row)[0, 1]
-
-    snap = {"time": datetime.now(IST), "sig": inputs_sig, "age": age, "sex": sex, "bmi": bmi,
-            "glucose": glucose, "sbp": sbp, "chol": chol, "used_typical": used_typical,
-            "p_d": p_d, "p_h": heart_prob(int(glucose > 120)), "p_lo": heart_prob(0), "p_hi": heart_prob(1)}
-    history = st.session_state.setdefault("history", [])   # kept only while this page stays open
-    history.append(snap)
-    del history[:-5]
-    st.session_state["last"] = snap
-
-snap = st.session_state.get("last")
-if snap:
-    # results always come from the moment the button was pressed
-    age, sex, bmi = snap["age"], snap["sex"], snap["bmi"]
-    glucose, sbp, chol = snap["glucose"], snap["sbp"], snap["chol"]
-    p_d, p_h, p_lo, p_hi = snap["p_d"], snap["p_h"], snap["p_lo"], snap["p_hi"]
-    used_typical = snap["used_typical"]
-    stamp = snap["time"].strftime("%d %b %Y, %I:%M %p IST")
-
-    # ---------------- results ----------------
-    st.markdown('<div class="section-title">Your results</div>', unsafe_allow_html=True)
-    st.markdown(f'<div class="stamp">🕒 Last checked: {stamp}</div>', unsafe_allow_html=True)
-    if snap["sig"] != inputs_sig:
-        st.info("You changed some answers after this check. Tap **Check my risk** again to update the results.")
-    st.markdown('<div class="legend"><span style="--c:#16A34A">Low: under 33%</span>'
-                '<span style="--c:#D97706">Moderate: 33% to 65%</span><span style="--c:#DC2626">High: 66% or more</span></div>'
-                '<p class="scorenote">These are risk scores from a computer model, not the exact chance of getting a disease.</p>',
-                unsafe_allow_html=True)
-    st.markdown(f'<div class="rgrid">{result_card("Diabetes", p_d, "d", "🩸")}'
-                f'{result_card("Heart disease", p_h, "h", "❤️")}</div>', unsafe_allow_html=True)
-    if used_typical:
-        st.caption("The optional lab and ECG details used typical healthy values, so the heart result is less precise.")
-    if len(st.session_state.get("history", [])) >= 2:
-        prev = st.session_state["history"][-2]
-        pstamp = prev["time"].strftime("%d %b %Y, %I:%M %p")
-        dd, dh = round((p_d - prev["p_d"]) * 100), round((p_h - prev["p_h"]) * 100)
-        st.markdown(f'<div class="cmp"><b>Compared with your previous check ({pstamp}):</b><br>'
-                    f'🩸 Diabetes: {round(prev["p_d"] * 100)}% → {round(p_d * 100)}% ({dd:+d} points)<br>'
-                    f'❤️ Heart disease: {round(prev["p_h"] * 100)}% → {round(p_h * 100)}% ({dh:+d} points)<br>'
-                    '<small>Checks are kept only while this page stays open. Nothing is saved.</small></div>',
+    st.markdown('<div class="section-title">Your screening result</div>'
+                '<div class="section-sub">Based on the health information you entered.</div>', unsafe_allow_html=True)
+    st.markdown(f'<div class="overall" style="--c:{COLORS[lvl]}"><div class="big">{icon}</div><div><h3>{head}</h3>'
+                f'<p>{sub}</p></div></div>', unsafe_allow_html=True)
+    if not np.isnan(glucose) and glucose >= 200:
+        st.markdown('<div class="alert">The glucose value you entered is high. Please see a doctor soon for proper testing.</div>',
                     unsafe_allow_html=True)
-
-    # ---------------- tips ----------------
-    bmi_cat, _ = bmi_category(bmi)
-    d_extra, h_extra = [], []
-    if bmi >= 25:
-        d_extra.append(("⚖️", f"Your BMI is {bmi:.1f} ({bmi_cat}). Gradual weight loss can lower your diabetes risk."))
-    elif bmi < 18.5:
-        d_extra.append(("⚖️", f"Your BMI is {bmi:.1f} (Underweight). Aim for balanced, nutritious meals."))
-    if glucose >= 100:
-        d_extra.append(("🩸", f"Your fasting glucose is {glucose} mg/dL, above the normal level (under 100). Discuss it with a doctor."))
-    if sbp >= 130:
-        h_extra.append(("💓", f"Your top blood pressure is {sbp} mmHg, above the healthy level (under 130). Reduce salt and get it rechecked."))
-    if chol >= 240:
-        h_extra.append(("🧈", f"Your cholesterol is {chol} mg/dL, which is high. Cut saturated fat and ask about a lipid profile."))
-    if bmi >= 25:
-        h_extra.append(("⚖️", f"A BMI of {bmi:.1f} adds strain on the heart. Weight management helps."))
-
-    st.markdown('<div class="section-title">Health tips for you</div>', unsafe_allow_html=True)
-    st.markdown('<div class="alert"><b>Get urgent medical help</b> if you have chest pain, sudden breathlessness, '
-                'fainting, or pain spreading to your arm or jaw, whatever your result says.</div>', unsafe_allow_html=True)
-    st.markdown(
-        '<div class="tgrid">'
-        f'{tips_card("Diabetes tips", "🩸", p_d, TIPS["diabetes"][level(p_d)], d_extra)}'
-        f'{tips_card("Heart health tips", "❤️", p_h, TIPS["heart"][level(p_h)], h_extra)}'
-        '</div>', unsafe_allow_html=True)
-
-    # ---------------- food guide ----------------
-    st.markdown('<div class="section-title">Your food guide</div>', unsafe_allow_html=True)
-    veg = st.toggle("🌱 Show vegetarian options only", value=False)
-    st.markdown('<div class="plate"><div class="pie"></div><div><b>The healthy plate</b><ul>'
-                '<li style="--c:#16A34A">Half: vegetables and salad</li>'
-                '<li style="--c:#D97706">One quarter: whole grains, millets or roti</li>'
-                '<li style="--c:#2563EB">One quarter: dal' + ('' if veg else ', egg, fish or lean meat') + ', paneer or tofu</li>'
-                '</ul></div></div>', unsafe_allow_html=True)
-    order = ["diabetes", "heart"] if p_d >= p_h else ["heart", "diabetes"]
-    titles = {"diabetes": "🩸 Diabetes-friendly eating", "heart": "❤️ Heart-healthy eating"}
-    for i, dz in enumerate(order):
-        with st.expander(titles[dz] + ("  (higher risk, start here)" if i == 0 else ""), expanded=(i == 0)):
-            st.markdown(food_html(dz, veg), unsafe_allow_html=True)
-    st.markdown('<div class="fnote">Eat regular meals, watch portion sizes, drink plenty of water and stay active. '
-                'If you are pregnant, have kidney disease or take medicines for diabetes or blood pressure, '
-                "follow your doctor's or dietitian's advice.</div>", unsafe_allow_html=True)
-
-    # ---------------- blood sugar effect ----------------
-    st.markdown('<div class="section-title">Does blood sugar affect your heart risk?</div>', unsafe_allow_html=True)
-    st.markdown(
-        '<div class="panel">'
-        f'<p>We compared the same person with normal and high fasting blood sugar (above 120 mg/dL). '
-        f'For this profile, high blood sugar changes the heart risk score by about <b>{(p_hi - p_lo) * 100:+.0f} points</b>.</p>'
-        f'{bar("Normal blood sugar", p_lo)}{bar("High blood sugar", p_hi)}</div>',
-        unsafe_allow_html=True,
-    )
-
-    with st.expander("🔎 Curious how the model decides?"):
-        st.markdown(f'<div class="fgrid">{factors_card("Diabetes model", "d", models["diabetes"])}'
-                    f'{factors_card("Heart model", "h", models["heart"])}</div>', unsafe_allow_html=True)
-        st.caption("Importance is measured across the whole training data, not for this one person.")
-
-    # ---------------- download ----------------
-    lines = ["DISEASE RISK PREDICTION - MY SUMMARY", f"Checked on: {stamp}", "",
-             f"Age: {age} | Sex: {sex} | BMI: {bmi:.1f} ({bmi_cat})", "",
-             f"Diabetes risk score: {round(p_d * 100)}% ({level(p_d)})",
-             f"Heart disease risk score: {round(p_h * 100)}% ({level(p_h)})", "", "Diabetes tips:"]
-    lines += [f"- {t}" for _, t in d_extra + TIPS["diabetes"][level(p_d)]]
-    lines += ["", "Heart health tips:"] + [f"- {t}" for _, t in h_extra + TIPS["heart"][level(p_h)]]
-    lines += ["", "This is an educational risk score, not a medical diagnosis. Please consult a doctor."]
+    if assumed:
+        st.markdown(f'<div class="assume"><b>Typical values were used for:</b> {assumed_txt}. These are not your own '
+                    'measurements, so treat the result as a rough guide.</div>', unsafe_allow_html=True)
     st.write("")
-    st.download_button("⬇️ Download my summary", "\n".join(lines), file_name="my_risk_summary.txt",
-                       use_container_width=True)
+    st.markdown(f'<div class="rgrid">{result_card(p)}{drivers_card(drv)}</div>', unsafe_allow_html=True)
 
+    if whatif is not None:
+        base_pts, alt_pts = round(p * 100), round(whatif * 100)
+        st.markdown('<div class="section-title">Model sensitivity: body weight</div>', unsafe_allow_html=True)
+        st.markdown(
+            '<div class="panel"><p>We change only your BMI to the upper end of the healthy range (24.9) and keep everything '
+            'else the same, to show how the model responds. This compares model outputs. It is not a promise of what weight '
+            'loss would do for you.</p><table class="sens"><tr><th>Scenario</th><th>BMI</th><th>Model score</th><th>Change</th></tr>'
+            f'<tr><td>Your input</td><td>{bmi}</td><td>{base_pts} / 100</td><td>-</td></tr>'
+            f'<tr><td>BMI at 24.9</td><td>24.9</td><td>{alt_pts} / 100</td><td>{alt_pts - base_pts:+d} points</td></tr></table></div>',
+            unsafe_allow_html=True)
+
+    focus = (("🩸", "For blood sugar", "Cut sugary drinks and sweets, and choose whole grains, millets and dal over white rice and maida.")
+             if ORDER[lvl] >= 1 or (not np.isnan(glucose) and glucose >= 140)
+             else ("🥗", "Keep it balanced", "Keep eating a mix of vegetables, whole grains, protein and fruit, and limit sweets and fried food."))
+    family_line = ""
+    if not np.isnan(dpf) and dpf > float(MED["DiabetesPedigreeFunction"]):
+        family_line = ('<div class="focus"><span class="e">👪</span><div><b>Family history</b>Diabetes in your family can raise '
+                       'your risk, so regular blood sugar checks are a good habit.</div></div>')
+    st.markdown('<div class="section-title">Health recommendations</div>', unsafe_allow_html=True)
     st.markdown(
-        '<div class="note">This is an educational risk score from a Random Forest model, not a diagnosis and not the '
-        'exact chance of getting a disease. The tips are general health guidance, not medical treatment. The diabetes '
-        'and heart models are trained on separate datasets, so the blood sugar link is an association the model '
-        'learned, not proof of cause. Please consult a doctor for medical advice.</div>',
-        unsafe_allow_html=True,
-    )
+        f'<div class="panel"><div class="focus"><span class="e">{focus[0]}</span><div><b>{focus[1]}</b>{focus[2]}</div></div>{family_line}'
+        '<div class="habits">'
+        '<div class="habit"><b>🚶 Stay active</b>Aim for at least 150 minutes of moderate activity a week.</div>'
+        '<div class="habit"><b>🚭 Avoid tobacco</b>Smoking raises the risk of many diseases.</div>'
+        '<div class="habit"><b>😴 Sleep well</b>Most adults need about 7 to 9 hours of sleep.</div>'
+        '<div class="habit"><b>🩺 Regular check-ups</b>Check blood sugar and blood pressure regularly.</div></div>'
+        '<div class="note" style="margin-top:.8rem">See the full food list in the <b>④ Nutrition guide</b> tab above.</div></div>',
+        unsafe_allow_html=True)
 
-st.markdown('<div class="foot">Disease Risk Prediction · Random Forest · Streamlit<br>'
-            'Team:45 - Artificial Intelligence and Data Science · HNN College of Engineering</div>', unsafe_allow_html=True)
+    with st.expander("How does the model work?"):
+        st.markdown(f'<div class="rgrid">{importance_card()}</div>', unsafe_allow_html=True)
+        st.caption("A Random Forest combines many decision trees. See the Model performance tab for how well it does on test data.")
+
+    summary = (
+        "HEALTHGUARD AI - DIABETES RISK SCREENING SUMMARY\n\n"
+        f"Diabetes model score: {p * 100:.0f}/100 ({lvl})\nOverall: {head}\n\n"
+        f"Inputs: age {age}, pregnancies {preg}, BMI {bmi}"
+        + ("" if np.isnan(glucose) else f", glucose {glucose} mg/dL")
+        + ("" if np.isnan(dbp) else f", diastolic BP {dbp} mmHg")
+        + ("" if np.isnan(dpf) else f", family history score {dpf:.2f}") + ".\n"
+        + (f"Typical values were used for: {assumed_txt}.\n" if assumed else "")
+        + f"\nRecommendation: {focus[2]}\n\n"
+          "This is an educational screening tool, not a medical diagnosis. Model scores are not exact probabilities. "
+          "Please consult a doctor.")
+    st.write("")
+    b1, b2 = st.columns(2)
+    with b1:
+        st.download_button("Download my summary", summary, file_name="healthguard_diabetes_summary.txt")
+    with b2:
+        st.button("Reset form", on_click=reset_form)
+    st.markdown(quote_html(*RESULT_QUOTES[lvl]), unsafe_allow_html=True)
+    st.markdown('<div class="note">This is an educational screening score from a Random Forest model, not a diagnosis and not '
+                'the exact chance of getting diabetes. Please consult a doctor for medical advice.</div>', unsafe_allow_html=True)
+
+st.markdown('<div class="foot"><b>HealthGuard AI</b> · Diabetes Risk Prediction · Random Forest · Streamlit · v1.0<br>'
+            'Team:45 - Artificial Intelligence and Data Science · HNN College of Engineering<br>'
+            'Educational screening tool, not a medical diagnosis. This app has no accounts or database and does not '
+            'store your answers itself.</div>', unsafe_allow_html=True)
