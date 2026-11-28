@@ -709,6 +709,6 @@ else:
 
 
 st.markdown('<div class="foot"><b>Disease Risk Prediction</b> · Diabetes screening · Random Forest · Streamlit · v1.1<br>'
-            'Team:45 - Artificial Intelligence and Data Science · HNN College of Engineering<br>'
+            'Artificial Intelligence and Data Science · HNN College of Engineering<br>'
             'Educational screening tool, not a medical diagnosis. This app has no accounts or database and does not '
             'store your answers itself.</div>', unsafe_allow_html=True)
