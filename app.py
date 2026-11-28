@@ -12,7 +12,7 @@ from sklearn.metrics import (accuracy_score, confusion_matrix, f1_score, precisi
 from sklearn.model_selection import StratifiedKFold, cross_val_score, train_test_split
 from sklearn.pipeline import make_pipeline
 
-st.set_page_config(page_title="HealthGuard AI | Diabetes Risk Check", page_icon="🩺", layout="wide")
+st.set_page_config(page_title="Disease Risk Prediction | Diabetes Risk Check", page_icon="🩺", layout="wide")
 
 COLUMNS = ["Pregnancies", "Glucose", "BloodPressure", "SkinThickness", "Insulin",
            "BMI", "DiabetesPedigreeFunction", "Age", "Outcome"]
@@ -450,7 +450,7 @@ def reset_form():
 
 
 BRAND = (
-    '<div class="brand"><span class="logo">🛡️</span><div><b>HealthGuard AI</b><small>Diabetes Risk Prediction</small></div>'
+    '<div class="brand"><span class="logo">🩺</span><div><b>Disease Risk Prediction</b><small>Diabetes screening</small></div>'
     '<span class="bt">AI-powered screening</span></div>')
 
 if st.session_state.get("view") == "results" and "saved" in st.session_state:
@@ -539,7 +539,7 @@ if st.session_state.get("view") == "results" and "saved" in st.session_state:
         st.caption("A Random Forest combines many decision trees. See the Model performance tab for how well it does on test data.")
 
     summary = (
-        "HEALTHGUARD AI - DIABETES RISK SCREENING SUMMARY\n\n"
+        "DISEASE RISK PREDICTION - DIABETES SCREENING SUMMARY\n\n"
         f"Diabetes model score: {p * 100:.0f}/100 ({lvl}), likely range {lo * 100:.0f} to {hi * 100:.0f}\nOverall: {head}\n\n"
         f"Inputs: age {age}, pregnancies {preg}, BMI {bmi}"
         + ("" if np.isnan(glucose) else f", glucose {glucose} mg/dL")
@@ -552,7 +552,7 @@ if st.session_state.get("view") == "results" and "saved" in st.session_state:
     st.write("")
     b1, b2, b3 = st.columns(3)
     with b1:
-        st.download_button("Download my summary", summary, file_name="healthguard_diabetes_summary.txt")
+        st.download_button("Download my summary", summary, file_name="disease_risk_summary.txt")
     with b2:
         st.button("← Edit my answers", on_click=edit_answers, key="edit_bottom")
     with b3:
@@ -563,7 +563,7 @@ if st.session_state.get("view") == "results" and "saved" in st.session_state:
 else:
     # ------------------------------------------------------------------ header
     st.markdown(
-        '<div class="brand"><span class="logo">🛡️</span><div><b>HealthGuard AI</b><small>Diabetes Risk Prediction</small></div>'
+        '<div class="brand"><span class="logo">🩺</span><div><b>Disease Risk Prediction</b><small>Diabetes screening</small></div>'
         '<span class="bt">AI-powered screening</span></div>'
         '<div class="hero"><span class="tag"><i></i>AI-powered health screening</span>'
         '<h1>Understand your diabetes risk. Act early.</h1>'
@@ -708,7 +708,7 @@ else:
     st.button("Check my diabetes risk", type="primary", on_click=show_results, key="check")
 
 
-st.markdown('<div class="foot"><b>HealthGuard AI</b> · Diabetes Risk Prediction · Random Forest · Streamlit · v1.1<br>'
+st.markdown('<div class="foot"><b>Disease Risk Prediction</b> · Diabetes screening · Random Forest · Streamlit · v1.1<br>'
             'Team:45 - Artificial Intelligence and Data Science · HNN College of Engineering<br>'
             'Educational screening tool, not a medical diagnosis. This app has no accounts or database and does not '
             'store your answers itself.</div>', unsafe_allow_html=True)
